@@ -407,8 +407,10 @@ ${text.slice(0, 10000)}
 // API: Extract claims and classify evolution gaps on session seal
 app.post('/api/gemini/seal-session', async (req: Request, res: Response) => {
   try {
+    const uid = req.uid;
     const body = req.body && typeof req.body === 'object' ? req.body : {};
     const conversationText = typeof body.conversationText === 'string' ? body.conversationText.slice(0, 20000) : '';
+    const sessionId = typeof body.sessionId === 'string' ? body.sessionId : undefined;
     const existingTopicSlugs: string[] = Array.isArray(body.existingTopicSlugs)
       ? body.existingTopicSlugs.map((s: any) => String(s).toLowerCase().trim()).filter(Boolean)
       : [];
@@ -555,6 +557,7 @@ Extract all explicit first-person stances/claims, assign topic slugs (reusing ex
           statement,
           topicSlug: cleanSlug,
           conviction,
+          sessionId: sessionId || undefined,
           createdAt: Date.now(),
         };
       })
@@ -591,6 +594,42 @@ Extract all explicit first-person stances/claims, assign topic slugs (reusing ex
     // Build the updated list of unique slugs
     const newSlugs = parsedClaims.map((c: any) => c.topicSlug);
     const updatedSlugs = Array.from(new Set([...existingTopicSlugs, ...newSlugs]));
+
+    // Server-side Admin SDK writes for topic-slugs and claims (write-locked from client)
+    if (uid) {
+      // 1. Write users/{uid}/meta/topics
+      const topicDocRef = adminDb.collection('users').doc(uid).collection('meta').doc('topics');
+      await topicDocRef.set(
+        {
+          slugs: updatedSlugs,
+          updatedAt: Date.now(),
+          serverSyncedAt: FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      // 2. Write users/{uid}/claims/{claimId}
+      if (parsedClaims.length > 0) {
+        const batch = adminDb.batch();
+        for (const claim of parsedClaims) {
+          const claimDocRef = adminDb.collection('users').doc(uid).collection('claims').doc(claim.id);
+          batch.set(
+            claimDocRef,
+            {
+              id: claim.id,
+              statement: claim.statement,
+              topicSlug: claim.topicSlug,
+              conviction: claim.conviction,
+              sessionId: sessionId || null,
+              createdAt: claim.createdAt,
+              serverSyncedAt: FieldValue.serverTimestamp(),
+            },
+            { merge: true }
+          );
+        }
+        await batch.commit();
+      }
+    }
 
     return res.json({
       claims: parsedClaims,

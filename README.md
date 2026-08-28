@@ -31,7 +31,7 @@ Standard journaling apps treat reflections as isolated, ephemeral entries. Refle
 | **Frontend Client** | React 19 + TypeScript + Tailwind CSS + Lucide Icons | Responsive single-page reflection dashboard with real-time Firestore sync and Markdown transcript rendering. |
 | **Backend Service** | Node.js Express + TypeScript (`server.ts`) | Reverse proxy, token verification, per-user rate limiting, daily quota metering, and structured Gemini generation. |
 | **User Identity** | Firebase Authentication | Federated Google Sign-In with zero plaintext credential handling. |
-| **Database & Persistence** | Cloud Firestore | Client-SDK persistence for journal entries, topics, and claims under owner-bound rules; Admin-SDK transaction persistence for daily quota counters. |
+| **Database & Persistence** | Cloud Firestore | Client-SDK persistence for journal interactions under owner-bound rules; Admin-SDK persistence for stance claims (`claims`), topic slug vocabularies (`meta/topics`), and daily quota counters (`quota`). |
 | **AI Processing Engine** | Google GenAI SDK (`@google/genai`) | Multi-turn cognitive reflection, executive summarization, stance extraction, and perspective-shift analysis. |
 | **Model Fallback Ladder** | `gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-flash-latest` → `gemini-3.7-flash` | Automated fallback across 4 model tiers catching `503`, `429`, `404`, and `500` status codes. |
 | **Secret Management** | Google Cloud Secret Manager | Zero API keys exposed to browser client or hardcoded in source repository. |
@@ -90,14 +90,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
-    // User metadata and topics document (e.g., users/{userId}/meta/topics)
+    // User metadata and topics document (e.g., users/{userId}/meta/topics - Read-only for user, Admin SDK writable only)
     match /users/{userId}/meta/{metaId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
     }
 
-    // User claims collection
+    // User claims collection (Read-only for user, Admin SDK writable only)
     match /users/{userId}/claims/{claimId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow write: if false;
     }
 
     // User metadata and profile document
@@ -219,7 +221,8 @@ During our pre-production security audit, an architectural vulnerability was ide
 
 ---
 
-## Known Limitations
+## Security Hardening & Data Boundaries
 
-- **Client-Side Claim and Topic Persistence**: Currently, reflection entries (`interactions`), topic slugs (`meta/topics`), and extracted stances (`claims`) are written to Firestore by the client SDK under owner-bound security rules (`request.auth.uid == userId`). While secure against cross-user data leakage, an advanced user could theoretically modify or delete their own historical claim records from the browser console. Moving all claim and topic write operations into an authenticated, server-side Admin SDK transaction is planned as the next security hardening milestone.
+- **Strict Server-Authoritative Epistemological Persistence**: Stance claims (`users/{uid}/claims`), topic vocabularies (`users/{uid}/meta/topics`), and rate-limit quotas (`users/{uid}/quota`) are write-locked with `allow write: if false;` in Firestore security rules and modified strictly via the Firebase Admin SDK in backend transactions and batch writes.
+- **Client Ownership Scope**: Users retain client-SDK read/write access exclusively to their personal conversational reflections (`users/{uid}/interactions/{interactionId}`) and profile documents under owner-bound rules (`request.auth.uid == userId`), preventing any cross-user data leakage.
 

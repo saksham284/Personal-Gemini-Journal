@@ -8,9 +8,7 @@ import {
   saveJournalEntry,
   removeJournalEntry,
   getUserTopicSlugs,
-  saveUserTopicSlugs,
   getAllUserClaims,
-  saveUserClaims,
   logOut,
 } from './lib/firebase';
 import type { JournalEntry, ChatMessage, ReflectionMode } from './types';
@@ -355,6 +353,7 @@ export default function App() {
         method: 'POST',
         body: JSON.stringify({
           conversationText: fullConversation,
+          sessionId: entry.id,
           existingTopicSlugs: existingSlugs,
           previousClaims: historicalClaims,
         }),
@@ -367,29 +366,14 @@ export default function App() {
 
       const data = await response.json();
 
-      // 4. Save updated topic slugs to users/{uid}/meta/topics
-      if (Array.isArray(data.updatedSlugs) && data.updatedSlugs.length > 0) {
-        await saveUserTopicSlugs(currentUser.uid, data.updatedSlugs);
-      }
-
-      // 5. Attach sessionId to new claims and persist to users/{uid}/claims
-      const claimsWithSession = (data.claims || []).map((c: any) => ({
-        ...c,
-        sessionId: entry.id,
-        createdAt: c.createdAt || Date.now(),
-      }));
-
-      if (claimsWithSession.length > 0) {
-        await saveUserClaims(currentUser.uid, claimsWithSession);
-      }
-
-      // 6. Update journal entry in Firestore
+      // 4. Update journal entry in Firestore with the server-extracted stances & evolution gaps
+      const returnedClaims = Array.isArray(data.claims) ? data.claims : [];
       const sealedEntry: JournalEntry = {
         ...entry,
         isSealed: true,
         sealedAt: Date.now(),
-        claims: claimsWithSession,
-        claimGaps: data.claimGaps || [],
+        claims: returnedClaims,
+        claimGaps: Array.isArray(data.claimGaps) ? data.claimGaps : [],
         updatedAt: Date.now(),
       };
 

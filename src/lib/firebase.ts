@@ -177,26 +177,6 @@ export async function getUserTopicSlugs(userId: string): Promise<string[]> {
 }
 
 /**
- * Stores topic slugs at users/{uid}/meta/topics
- */
-export async function saveUserTopicSlugs(userId: string, slugs: string[]): Promise<void> {
-  if (!userId) return;
-  const topicDocRef = doc(db, 'users', userId, 'meta', 'topics');
-  const uniqueSlugs = Array.from(
-    new Set(slugs.map((s) => s.toLowerCase().trim()).filter(Boolean))
-  );
-  await setDoc(
-    topicDocRef,
-    stripUndefined({
-      slugs: uniqueSlugs,
-      updatedAt: Date.now(),
-      serverSyncedAt: serverTimestamp(),
-    }),
-    { merge: true }
-  );
-}
-
-/**
  * Fetches all past claims for a user to track evolution across sessions
  */
 export async function getAllUserClaims(userId: string): Promise<ExtractedClaim[]> {
@@ -219,25 +199,6 @@ export async function getAllUserClaims(userId: string): Promise<ExtractedClaim[]
   } catch (err) {
     console.warn('Error fetching all user claims:', err);
     return [];
-  }
-}
-
-/**
- * Saves extracted claims to users/{userId}/claims/{claimId}
- */
-export async function saveUserClaims(userId: string, claims: ExtractedClaim[]): Promise<void> {
-  if (!userId || !claims.length) return;
-  for (const claim of claims) {
-    if (!claim.id) continue;
-    const claimDocRef = doc(db, 'users', userId, 'claims', claim.id);
-    await setDoc(
-      claimDocRef,
-      stripUndefined({
-        ...claim,
-        serverSyncedAt: serverTimestamp(),
-      }),
-      { merge: true }
-    );
   }
 }
 
