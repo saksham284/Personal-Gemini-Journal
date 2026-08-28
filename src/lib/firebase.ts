@@ -11,6 +11,8 @@ import {
   getFirestore,
   collection,
   doc,
+  getDoc,
+  getDocs,
   setDoc,
   deleteDoc,
   onSnapshot,
@@ -20,7 +22,7 @@ import {
   type Firestore,
 } from 'firebase/firestore';
 import firebaseConfigJson from '../../firebase-applet-config.json';
-import type { JournalEntry, ChatMessage, ReflectionMode } from '../types';
+import type { JournalEntry, ChatMessage, ReflectionMode, ExtractedClaim, ClaimGap, UserTopicsMeta } from '../types';
 
 const firebaseConfig = {
   apiKey: firebaseConfigJson.apiKey,
@@ -108,6 +110,10 @@ export function subscribeToJournalEntries(
           mode: (data.mode as ReflectionMode) || 'deep_reflection',
           messages: Array.isArray(data.messages) ? data.messages : [],
           tags: Array.isArray(data.tags) ? data.tags : [],
+          isSealed: Boolean(data.isSealed),
+          sealedAt: typeof data.sealedAt === 'number' ? data.sealedAt : undefined,
+          claims: Array.isArray(data.claims) ? data.claims : [],
+          claimGaps: Array.isArray(data.claimGaps) ? data.claimGaps : [],
           createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.now(),
           updatedAt: typeof data.updatedAt === 'number' ? data.updatedAt : Date.now(),
         };
@@ -149,3 +155,89 @@ export async function removeJournalEntry(userId: string, entryId: string): Promi
   const entryRef = doc(db, 'users', userId, 'interactions', entryId);
   await deleteDoc(entryRef);
 }
+
+/**
+ * Reads user topic slugs stored at users/{uid}/meta/topics
+ */
+export async function getUserTopicSlugs(userId: string): Promise<string[]> {
+  if (!userId) return [];
+  try {
+    const topicDocRef = doc(db, 'users', userId, 'meta', 'topics');
+    const snap = await getDoc(topicDocRef);
+    if (snap.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data.slugs)) {
+        return data.slugs.map((s: any) => String(s).toLowerCase().trim()).filter(Boolean);
+      }
+    }
+  } catch (err) {
+    console.error('Error fetching user topic slugs:', err);
+  }
+  return [];
+}
+
+/**
+ * Stores topic slugs at users/{uid}/meta/topics
+ */
+export async function saveUserTopicSlugs(userId: string, slugs: string[]): Promise<void> {
+  if (!userId) return;
+  const topicDocRef = doc(db, 'users', userId, 'meta', 'topics');
+  const uniqueSlugs = Array.from(
+    new Set(slugs.map((s) => s.toLowerCase().trim()).filter(Boolean))
+  );
+  await setDoc(
+    topicDocRef,
+    stripUndefined({
+      slugs: uniqueSlugs,
+      updatedAt: Date.now(),
+      serverSyncedAt: serverTimestamp(),
+    }),
+    { merge: true }
+  );
+}
+
+/**
+ * Fetches all past claims for a user to track evolution across sessions
+ */
+export async function getAllUserClaims(userId: string): Promise<ExtractedClaim[]> {
+  if (!userId) return [];
+  try {
+    const claimsRef = collection(db, 'users', userId, 'claims');
+    const q = query(claimsRef, orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        statement: data.statement || '',
+        topicSlug: data.topicSlug || '',
+        conviction: typeof data.conviction === 'number' ? data.conviction : 0.5,
+        sessionId: data.sessionId,
+        createdAt: typeof data.createdAt === 'number' ? data.createdAt : Date.now(),
+      };
+    });
+  } catch (err) {
+    console.warn('Error fetching all user claims:', err);
+    return [];
+  }
+}
+
+/**
+ * Saves extracted claims to users/{userId}/claims/{claimId}
+ */
+export async function saveUserClaims(userId: string, claims: ExtractedClaim[]): Promise<void> {
+  if (!userId || !claims.length) return;
+  for (const claim of claims) {
+    if (!claim.id) continue;
+    const claimDocRef = doc(db, 'users', userId, 'claims', claim.id);
+    await setDoc(
+      claimDocRef,
+      stripUndefined({
+        ...claim,
+        serverSyncedAt: serverTimestamp(),
+      }),
+      { merge: true }
+    );
+  }
+}
+

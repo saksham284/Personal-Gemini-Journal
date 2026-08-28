@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Tag, MessageSquare, Trash2, Calendar, Sparkles, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Search, Tag, MessageSquare, Trash2, Calendar, Sparkles, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
 import type { JournalEntry } from '../types';
 
 interface SidebarHistoryProps {
@@ -231,6 +231,20 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                                 }`}
                               >
                                 #{entry.tags[0]}
+                              </span>
+                            )}
+
+                            {entry.isSealed && (
+                              <span
+                                title="Sealed session with extracted stances"
+                                className={`inline-flex items-center gap-0.5 rounded px-1 py-0.2 text-[9px] font-medium ${
+                                  isActive
+                                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/50'
+                                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                }`}
+                              >
+                                <ShieldCheck className="h-2.5 w-2.5" />
+                                <span>Sealed</span>
                               </span>
                             )}
                           </div>

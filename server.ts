@@ -1,16 +1,224 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
 import dotenv from 'dotenv';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, Type } from '@google/genai';
+import { initializeApp, getApps, applicationDefault } from 'firebase-admin/app';
+import { getAuth, DecodedIdToken } from 'firebase-admin/auth';
+import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config();
+
+// 1. Initialize Firebase Admin with applicationDefault()
+if (!getApps().length) {
+  try {
+    initializeApp({
+      credential: applicationDefault(),
+    });
+  } catch (err) {
+    console.warn('[Firebase Admin] Notice on applicationDefault() initialization:', err);
+    initializeApp();
+  }
+}
+
+// Admin Firestore instance for internal server counters
+const adminDb = getFirestore();
 
 const app = express();
 const PORT = 3000;
 
+// Type extension for Express Request
+declare global {
+  namespace Express {
+    interface Request {
+      uid?: string;
+      token?: DecodedIdToken;
+    }
+  }
+}
+
 // 1. Top-Level Request Deserialization (Ordering Guarantee)
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
+
+// 2. Authentication Middleware: Revocation-checked Firebase ID Token Verification
+async function requireUser(req: Request, res: Response, next: NextFunction) {
+  const authHeader = req.headers.authorization;
+  const correlationId = `corr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({
+      error: 'Authentication required. Missing or malformed Authorization header.',
+      code: 'UNAUTHORIZED_MISSING_TOKEN',
+      correlationId,
+    });
+  }
+
+  const token = authHeader.slice(7).trim();
+  if (!token) {
+    return res.status(401).json({
+      error: 'Authentication required. Token not provided.',
+      code: 'UNAUTHORIZED_EMPTY_TOKEN',
+      correlationId,
+    });
+  }
+
+  try {
+    // Revocation-checked ID token verification
+    const decodedToken = await getAuth().verifyIdToken(token, true);
+
+    // Reject anonymous sign-in providers with 403
+    const provider = decodedToken.firebase?.sign_in_provider;
+    if (provider === 'anonymous' || decodedToken.provider_id === 'anonymous') {
+      return res.status(403).json({
+        error: 'Anonymous access is forbidden.',
+        code: 'ANONYMOUS_ACCESS_FORBIDDEN',
+        correlationId,
+      });
+    }
+
+    req.uid = decodedToken.uid;
+    req.token = decodedToken;
+    return next();
+  } catch (err: any) {
+    console.warn(`[Auth 401] Token verification failed [Correlation ID: ${correlationId}]:`, err?.code || err?.message);
+    return res.status(401).json({
+      error: 'Invalid, expired, or revoked authentication token.',
+      code: 'UNAUTHORIZED_TOKEN',
+      correlationId,
+    });
+  }
+}
+
+// Mount requireUser on ALL /api routes before any API handler
+app.use('/api', requireUser);
+
+// 3. Per-User Cost Control & Rate Limiting Middleware for /api/gemini/*
+
+// (a) In-memory Token Bucket: 20 requests per minute per uid
+interface TokenBucket {
+  tokens: number;
+  lastRefill: number; // epoch ms
+}
+const userBuckets = new Map<string, TokenBucket>();
+const BUCKET_CAPACITY = 20; // 20 requests max burst
+const REFILL_RATE_PER_MS = 20 / 60000; // 20 tokens per 60,000 ms = 1 token per 3000ms
+
+function checkTokenBucket(uid: string): boolean {
+  const now = Date.now();
+  let bucket = userBuckets.get(uid);
+
+  if (!bucket) {
+    bucket = { tokens: BUCKET_CAPACITY - 1, lastRefill: now };
+    userBuckets.set(uid, bucket);
+    return true;
+  }
+
+  // Refill tokens based on elapsed time
+  const elapsed = Math.max(0, now - bucket.lastRefill);
+  bucket.tokens = Math.min(BUCKET_CAPACITY, bucket.tokens + elapsed * REFILL_RATE_PER_MS);
+  bucket.lastRefill = now;
+
+  if (bucket.tokens >= 1) {
+    bucket.tokens -= 1;
+    return true;
+  }
+
+  return false;
+}
+
+// Periodically clean up stale token buckets to prevent memory leaks (every 10 minutes)
+setInterval(() => {
+  const cutoff = Date.now() - 15 * 60 * 1000;
+  for (const [uid, bucket] of userBuckets.entries()) {
+    if (bucket.lastRefill < cutoff) {
+      userBuckets.delete(uid);
+    }
+  }
+}, 10 * 60 * 1000);
+
+// (b) Daily Quota Enforcement inside Firestore Transaction (Admin SDK writable only)
+async function enforceGeminiQuota(req: Request, res: Response, next: NextFunction) {
+  const uid = req.uid;
+  const correlationId = `corr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+
+  if (!uid) {
+    return res.status(401).json({
+      error: 'User ID missing from authenticated context.',
+      code: 'UNAUTHORIZED_MISSING_UID',
+      correlationId,
+    });
+  }
+
+  // Step 1: In-memory token bucket rate limit (20 req / min)
+  const hasToken = checkTokenBucket(uid);
+  if (!hasToken) {
+    return res.status(429).json({
+      error: 'You have exceeded the rate limit (20 requests per minute). Please slow down and try again shortly.',
+      code: 'RATE_LIMITED',
+      correlationId,
+    });
+  }
+
+  // Step 2: Daily Call Limit via Admin Firestore Transaction
+  const parsedLimit = parseInt(process.env.DAILY_CALL_LIMIT || '120', 10);
+  const dailyLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 120;
+
+  // Format today's date in YYYY-MM-DD (UTC)
+  const todayDocId = new Date().toISOString().slice(0, 10);
+  const quotaDocRef = adminDb.collection('users').doc(uid).collection('quota').doc(todayDocId);
+
+  try {
+    const transactionResult = await adminDb.runTransaction(async (transaction) => {
+      const quotaDoc = await transaction.get(quotaDocRef);
+      let currentCount = 0;
+
+      if (quotaDoc.exists) {
+        currentCount = quotaDoc.data()?.callCount || 0;
+      }
+
+      if (currentCount >= dailyLimit) {
+        return { allowed: false, currentCount, dailyLimit };
+      }
+
+      const nextCount = currentCount + 1;
+      transaction.set(
+        quotaDocRef,
+        {
+          callCount: nextCount,
+          dailyLimit,
+          updatedAt: FieldValue.serverTimestamp(),
+          date: todayDocId,
+        },
+        { merge: true }
+      );
+
+      return { allowed: true, currentCount: nextCount, dailyLimit };
+    });
+
+    if (!transactionResult.allowed) {
+      return res.status(429).json({
+        error: `Daily Gemini AI call quota reached (${transactionResult.currentCount}/${transactionResult.dailyLimit} calls for today). Your quota will reset tomorrow.`,
+        code: 'DAILY_LIMIT_REACHED',
+        correlationId,
+        currentCount: transactionResult.currentCount,
+        dailyLimit: transactionResult.dailyLimit,
+      });
+    }
+
+    return next();
+  } catch (err: any) {
+    console.error(`[Quota Error] Failed to evaluate daily quota for user ${uid} [${correlationId}]:`, err);
+    // If Firestore transaction fails unexpectedly, fail open or return safe error
+    return res.status(500).json({
+      error: 'Failed to verify AI call quota.',
+      code: 'QUOTA_VERIFICATION_ERROR',
+      correlationId,
+    });
+  }
+}
+
+// Mount enforceGeminiQuota on ALL /api/gemini/* routes
+app.use('/api/gemini', enforceGeminiQuota);
 
 // Lazy-initialized GoogleGenAI client
 let aiClient: GoogleGenAI | null = null;
@@ -42,7 +250,7 @@ interface ContentFallbackResult {
  * Executes a Gemini content generation call across the resilient fallback ladder
  */
 async function generateContentWithFallback(
-  prompt: string | { contents: any[]; systemInstruction?: string }
+  prompt: string | { contents: any; systemInstruction?: string; config?: any }
 ): Promise<ContentFallbackResult> {
   const ai = getAIClient();
   let lastError: any = null;
@@ -56,12 +264,14 @@ async function generateContentWithFallback(
           contents: prompt,
         });
       } else {
+        const genConfig = {
+          ...(prompt.config || {}),
+          ...(prompt.systemInstruction ? { systemInstruction: prompt.systemInstruction } : {}),
+        };
         response = await ai.models.generateContent({
           model,
           contents: prompt.contents,
-          config: prompt.systemInstruction
-            ? { systemInstruction: prompt.systemInstruction }
-            : undefined,
+          config: Object.keys(genConfig).length > 0 ? genConfig : undefined,
         });
       }
 
@@ -190,6 +400,208 @@ ${text.slice(0, 10000)}
     console.error('Error in /api/gemini/summarize:', error);
     return res.status(500).json({
       error: error.message || 'Failed to generate summary.',
+    });
+  }
+});
+
+// API: Extract claims and classify evolution gaps on session seal
+app.post('/api/gemini/seal-session', async (req: Request, res: Response) => {
+  try {
+    const body = req.body && typeof req.body === 'object' ? req.body : {};
+    const conversationText = typeof body.conversationText === 'string' ? body.conversationText.slice(0, 20000) : '';
+    const existingTopicSlugs: string[] = Array.isArray(body.existingTopicSlugs)
+      ? body.existingTopicSlugs.map((s: any) => String(s).toLowerCase().trim()).filter(Boolean)
+      : [];
+    const previousClaims = Array.isArray(body.previousClaims) ? body.previousClaims : [];
+
+    if (!conversationText.trim()) {
+      return res.status(400).json({ error: 'Conversation text is required to extract claims.' });
+    }
+
+    const previousClaimsFormatted = previousClaims.length > 0
+      ? previousClaims
+          .map(
+            (c: any, i: number) =>
+              `${i + 1}. [Topic: ${String(c.topicSlug || 'unknown')}] (Conviction: ${c.conviction ?? 'unknown'}) "${String(c.statement || '')}"`
+          )
+          .join('\n')
+      : 'None recorded yet.';
+
+    const systemInstruction = `You are a precision epistemological analyst for a personal reflective journal companion.
+When a user seals a reflection session, your task is to:
+1. Extract first-person stances (claims) the user expressed in their reflection that they could later abandon, modify, or evolve (e.g., self-commitments, beliefs, rules, life philosophies, habits, strong attitudes, or work priorities).
+2. Assign each claim a lower-kebab-case topic slug.
+3. CRITICAL TOPIC SLUG REUSE: You are provided with the user's existing topic slugs: [${existingTopicSlugs.map((s) => `"${s}"`).join(', ')}]. If an extracted claim fits or relates to any of these existing topic slugs, you MUST REUSE that exact slug (e.g. reuse "career-direction" instead of inventing "career-path" or "job-transition"). If no existing slug is a good match, generate a concise new lower-kebab-case slug.
+4. Assign a conviction score between 0.0 (hesitant/exploratory) and 1.0 (firm/dogmatic).
+5. Evolution Gap Analysis: When a newly extracted claim shares a topic slug with any older claim provided in the Historical Claims list:
+   - Compare the older stance with the new stance.
+   - Classify the shift as strictly one of: "reverses", "abandons", "refines", or "reinforces".
+   - Generate exactly one reflective, constructive question probing this perspective shift.`;
+
+    const promptText = `USER SESSION TEXT:
+"""
+${conversationText}
+"""
+
+EXISTING TOPIC SLUGS (Reuse these whenever applicable):
+${existingTopicSlugs.length > 0 ? existingTopicSlugs.join(', ') : 'None yet'}
+
+HISTORICAL CLAIMS:
+${previousClaimsFormatted}
+
+Extract all explicit first-person stances/claims, assign topic slugs (reusing existing ones where applicable) and 0-1 conviction scores, and evaluate evolution gaps for any claims sharing a topic with historical claims.`;
+
+    const claimsSchema = {
+      type: Type.OBJECT,
+      properties: {
+        claims: {
+          type: Type.ARRAY,
+          description: 'List of first-person stances/claims extracted from the session that the user could later abandon or evolve.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              statement: {
+                type: Type.STRING,
+                description: 'The first-person stance/claim stated by the user.',
+              },
+              topicSlug: {
+                type: Type.STRING,
+                description: 'Lower-kebab-case topic slug (e.g., "career-direction", "morning-routine"). Reuses existing slugs when appropriate.',
+              },
+              conviction: {
+                type: Type.NUMBER,
+                description: 'Conviction score between 0.0 and 1.0.',
+              },
+            },
+            required: ['statement', 'topicSlug', 'conviction'],
+          },
+        },
+        gaps: {
+          type: Type.ARRAY,
+          description: 'Evolution comparisons for any newly extracted claim that shares a topic with historical claims.',
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              topicSlug: {
+                type: Type.STRING,
+                description: 'The shared lower-kebab-case topic slug.',
+              },
+              previousClaim: {
+                type: Type.STRING,
+                description: 'The older historical claim statement on this topic.',
+              },
+              newClaim: {
+                type: Type.STRING,
+                description: 'The newly extracted claim statement.',
+              },
+              classification: {
+                type: Type.STRING,
+                enum: ['reverses', 'abandons', 'refines', 'reinforces'],
+                description: 'Classification of how the new stance compares to the old one.',
+              },
+              question: {
+                type: Type.STRING,
+                description: 'One probing question examining the shift.',
+              },
+            },
+            required: ['topicSlug', 'previousClaim', 'newClaim', 'classification', 'question'],
+          },
+        },
+      },
+      required: ['claims', 'gaps'],
+    };
+
+    const result = await generateContentWithFallback({
+      contents: [{ role: 'user', parts: [{ text: promptText }] }],
+      systemInstruction,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: claimsSchema,
+        temperature: 0.3,
+      },
+    });
+
+    let rawParsed: any = null;
+    try {
+      const cleanJson = result.text.replace(/```json/g, '').replace(/```/g, '').trim();
+      rawParsed = JSON.parse(cleanJson);
+    } catch {
+      rawParsed = { claims: [], gaps: [] };
+    }
+
+    // Defensive parsing & clamping on our side
+    const rawClaims = Array.isArray(rawParsed?.claims) ? rawParsed.claims : [];
+    const rawGaps = Array.isArray(rawParsed?.gaps) ? rawParsed.gaps : [];
+
+    const parsedClaims = rawClaims
+      .map((c: any) => {
+        const rawSlug = String(c.topicSlug || '').toLowerCase().trim();
+        const cleanSlug = rawSlug.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'general-reflection';
+        
+        let conviction = 0.5;
+        if (typeof c.conviction === 'number') {
+          conviction = c.conviction;
+        } else if (typeof c.conviction === 'string') {
+          conviction = parseFloat(c.conviction) || 0.5;
+        }
+        // Clamp strictly to [0, 1]
+        conviction = Math.max(0, Math.min(1, Math.round(conviction * 100) / 100));
+
+        const statement = String(c.statement || '').trim();
+        if (!statement) return null;
+
+        return {
+          id: `claim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          statement,
+          topicSlug: cleanSlug,
+          conviction,
+          createdAt: Date.now(),
+        };
+      })
+      .filter(Boolean);
+
+    // "File only the first three" - reverses / abandons / refines (exclude reinforces)
+    const allowedGapClassifications = new Set(['reverses', 'abandons', 'refines']);
+    const filedGaps = rawGaps
+      .map((g: any) => {
+        const rawClass = String(g.classification || '').toLowerCase().trim();
+        if (!allowedGapClassifications.has(rawClass)) {
+          return null;
+        }
+        const rawSlug = String(g.topicSlug || '').toLowerCase().trim();
+        const cleanSlug = rawSlug.replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'general-reflection';
+        
+        const question = String(g.question || '').trim();
+        const previousClaim = String(g.previousClaim || '').trim();
+        const newClaim = String(g.newClaim || '').trim();
+
+        if (!question || !newClaim) return null;
+
+        return {
+          id: `gap-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          topicSlug: cleanSlug,
+          previousClaim: previousClaim || 'Prior stance',
+          newClaim,
+          classification: rawClass as 'reverses' | 'abandons' | 'refines',
+          question,
+        };
+      })
+      .filter(Boolean);
+
+    // Build the updated list of unique slugs
+    const newSlugs = parsedClaims.map((c: any) => c.topicSlug);
+    const updatedSlugs = Array.from(new Set([...existingTopicSlugs, ...newSlugs]));
+
+    return res.json({
+      claims: parsedClaims,
+      claimGaps: filedGaps,
+      updatedSlugs,
+      modelUsed: result.modelUsed,
+    });
+  } catch (error: any) {
+    console.error('Error in /api/gemini/seal-session:', error);
+    return res.status(500).json({
+      error: error.message || 'Failed to extract claims and analyze session evolution.',
     });
   }
 });

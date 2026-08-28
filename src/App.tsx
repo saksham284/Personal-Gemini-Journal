@@ -2,10 +2,15 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { User } from 'firebase/auth';
 import {
   auth,
+  signInWithGoogle,
   subscribeToAuthChanges,
   subscribeToJournalEntries,
   saveJournalEntry,
   removeJournalEntry,
+  getUserTopicSlugs,
+  saveUserTopicSlugs,
+  getAllUserClaims,
+  saveUserClaims,
   logOut,
 } from './lib/firebase';
 import type { JournalEntry, ChatMessage, ReflectionMode } from './types';
@@ -14,7 +19,7 @@ import { AuthLanding } from './components/AuthLanding';
 import { SidebarHistory } from './components/SidebarHistory';
 import { JournalWorkspace } from './components/JournalWorkspace';
 import { DeleteModal } from './components/DeleteModal';
-import { Sparkles, Menu, X } from 'lucide-react';
+import { Sparkles, Menu, X, LogIn, Lock, RefreshCw } from 'lucide-react';
 
 function createNewBlankEntry(userId: string): JournalEntry {
   return {
@@ -43,11 +48,16 @@ export default function App() {
   // AI loading states
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [isSummarizing, setIsSummarizing] = useState<boolean>(false);
+  const [isSealing, setIsSealing] = useState<boolean>(false);
 
   // UI state
   const [sidebarOpen, setSidebarOpen] = useState<boolean>(false);
   const [entryToDelete, setEntryToDelete] = useState<JournalEntry | null>(null);
   const [isDeleting, setIsDeleting] = useState<boolean>(false);
+
+  // 401 Re-authentication state
+  const [isReauthModalOpen, setIsReauthModalOpen] = useState<boolean>(false);
+  const [isReauthenticating, setIsReauthenticating] = useState<boolean>(false);
 
   // Fallback cache for retry
   const pendingSaveRef = useRef<JournalEntry | null>(null);
@@ -60,6 +70,8 @@ export default function App() {
       if (!user) {
         setEntries([]);
         setActiveEntry(null);
+      } else {
+        setIsReauthModalOpen(false);
       }
     });
 
@@ -91,6 +103,68 @@ export default function App() {
 
     return () => unsubscribe();
   }, [currentUser]);
+
+  // Helper for Authenticated API requests with Bearer token & 401 interceptor
+  const authFetch = useCallback(
+    async (url: string, options: RequestInit = {}): Promise<Response> => {
+      if (!currentUser) {
+        setIsReauthModalOpen(true);
+        throw new Error('Authentication required. Please sign in.');
+      }
+
+      let idToken: string;
+      try {
+        idToken = await currentUser.getIdToken();
+      } catch (tokenErr) {
+        console.error('Failed to acquire Firebase ID token:', tokenErr);
+        setIsReauthModalOpen(true);
+        throw new Error('Session expired. Please sign in again.');
+      }
+
+      const headers = new Headers(options.headers || {});
+      headers.set('Authorization', `Bearer ${idToken}`);
+      if (!headers.has('Content-Type') && options.body) {
+        headers.set('Content-Type', 'application/json');
+      }
+
+      const response = await fetch(url, {
+        ...options,
+        headers,
+      });
+
+      if (response.status === 401) {
+        console.warn(`[Client] Received 401 from ${url}. Triggering re-authentication modal.`);
+        setIsReauthModalOpen(true);
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Your authentication session has expired. Please sign in again to continue.');
+      }
+
+      if (response.status === 429) {
+        const errorData = await response.json().catch(() => ({}));
+        const code = errorData.code || 'RATE_LIMITED';
+        console.warn(`[Client] Received 429 (${code}) from ${url}. Preserving draft and surfacing notice.`);
+        throw new Error(errorData.error || 'Rate limit or daily AI call limit reached. Please wait before retrying.');
+      }
+
+      return response;
+    },
+    [currentUser]
+  );
+
+  // Re-authentication action
+  const handleReauthenticate = async () => {
+    setIsReauthenticating(true);
+    try {
+      await signInWithGoogle();
+      setIsReauthModalOpen(false);
+      setErrorMessage(null);
+    } catch (err: any) {
+      console.error('Re-authentication failed:', err);
+      setErrorMessage('Re-authentication failed. Please try again.');
+    } finally {
+      setIsReauthenticating(false);
+    }
+  };
 
   // Handle New Entry creation
   const handleNewEntry = useCallback(() => {
@@ -169,10 +243,9 @@ export default function App() {
     setErrorMessage(null);
 
     try {
-      // 1. Call backend server endpoint
-      const response = await fetch('/api/gemini/reflect', {
+      // 1. Call backend server endpoint with verified Bearer token
+      const response = await authFetch('/api/gemini/reflect', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           messages: workingEntry.messages.map((m) => ({
             role: m.role,
@@ -223,9 +296,8 @@ export default function App() {
         .map((m) => `${m.role === 'user' ? 'User' : 'Gemini'}: ${m.content}`)
         .join('\n\n');
 
-      const response = await fetch('/api/gemini/summarize', {
+      const response = await authFetch('/api/gemini/summarize', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text: fullConversation }),
       });
 
@@ -249,6 +321,84 @@ export default function App() {
       setErrorMessage(err.message || 'Failed to summarize entry.');
     } finally {
       setIsSummarizing(false);
+    }
+  };
+
+  // Handle Sealing a Session and Extracting Claims & Evolution Gaps
+  const handleSealSession = async (entry: JournalEntry) => {
+    if (entry.messages.length === 0 || !currentUser) return;
+
+    setIsSealing(true);
+    setErrorMessage(null);
+
+    try {
+      const fullConversation = entry.messages
+        .map((m) => `${m.role === 'user' ? 'User' : 'Gemini'}: ${m.content}`)
+        .join('\n\n');
+
+      // 1. Fetch user's existing topic slugs from users/{uid}/meta/topics
+      const existingSlugs = await getUserTopicSlugs(currentUser.uid);
+
+      // 2. Fetch past claims to compare evolution
+      const allPastClaims = await getAllUserClaims(currentUser.uid);
+      const historicalClaims = allPastClaims
+        .filter((c) => c.sessionId !== entry.id)
+        .map((c) => ({
+          statement: c.statement,
+          topicSlug: c.topicSlug,
+          conviction: c.conviction,
+          createdAt: c.createdAt,
+        }));
+
+      // 3. Call backend seal-session endpoint with verified Bearer token
+      const response = await authFetch('/api/gemini/seal-session', {
+        method: 'POST',
+        body: JSON.stringify({
+          conversationText: fullConversation,
+          existingTopicSlugs: existingSlugs,
+          previousClaims: historicalClaims,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to extract claims and seal session');
+      }
+
+      const data = await response.json();
+
+      // 4. Save updated topic slugs to users/{uid}/meta/topics
+      if (Array.isArray(data.updatedSlugs) && data.updatedSlugs.length > 0) {
+        await saveUserTopicSlugs(currentUser.uid, data.updatedSlugs);
+      }
+
+      // 5. Attach sessionId to new claims and persist to users/{uid}/claims
+      const claimsWithSession = (data.claims || []).map((c: any) => ({
+        ...c,
+        sessionId: entry.id,
+        createdAt: c.createdAt || Date.now(),
+      }));
+
+      if (claimsWithSession.length > 0) {
+        await saveUserClaims(currentUser.uid, claimsWithSession);
+      }
+
+      // 6. Update journal entry in Firestore
+      const sealedEntry: JournalEntry = {
+        ...entry,
+        isSealed: true,
+        sealedAt: Date.now(),
+        claims: claimsWithSession,
+        claimGaps: data.claimGaps || [],
+        updatedAt: Date.now(),
+      };
+
+      await handleUpdateEntry(sealedEntry);
+    } catch (err: any) {
+      console.error('Seal session error:', err);
+      setErrorMessage(err.message || 'Failed to extract stances and seal session.');
+    } finally {
+      setIsSealing(false);
     }
   };
 
@@ -333,8 +483,10 @@ export default function App() {
             entry={activeEntry}
             onUpdateEntry={handleUpdateEntry}
             onSummarizeEntry={handleSummarizeEntry}
+            onSealSession={handleSealSession}
             isGenerating={isGenerating}
             isSummarizing={isSummarizing}
+            isSealing={isSealing}
             onSendMessage={handleSendMessage}
             errorMessage={errorMessage}
             onClearError={() => setErrorMessage(null)}
@@ -349,6 +501,52 @@ export default function App() {
         onCancel={() => setEntryToDelete(null)}
         isDeleting={isDeleting}
       />
+
+      {/* 401 Re-authentication Modal */}
+      {isReauthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/60 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+                <Lock className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-neutral-900">Session Verification Required</h3>
+                <p className="text-xs text-neutral-500">Your session token has expired or is invalid.</p>
+              </div>
+            </div>
+
+            <p className="text-xs text-neutral-600 leading-relaxed">
+              To protect your private journal entries and securely communicate with Gemini, please re-authenticate.
+              <span className="font-semibold text-neutral-900"> Your draft text and current reflections are safely preserved.</span>
+            </p>
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                type="button"
+                onClick={() => setIsReauthModalOpen(false)}
+                className="rounded-lg border border-neutral-200 px-3.5 py-2 text-xs font-medium text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900 cursor-pointer"
+              >
+                Dismiss
+              </button>
+              <button
+                type="button"
+                onClick={handleReauthenticate}
+                disabled={isReauthenticating}
+                id="btn-reauthenticate"
+                className="flex items-center gap-2 rounded-lg bg-neutral-900 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+              >
+                {isReauthenticating ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <LogIn className="h-3.5 w-3.5" />
+                )}
+                <span>{isReauthenticating ? 'Signing In...' : 'Sign In with Google'}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

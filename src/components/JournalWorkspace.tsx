@@ -13,18 +13,25 @@ import {
   ListTodo,
   Heart,
   Tag as TagIcon,
-  ChevronDown,
   Download,
   AlertCircle,
+  ShieldCheck,
+  Lock,
+  ArrowRight,
+  TrendingUp,
+  GitBranch,
+  HelpCircle,
 } from 'lucide-react';
-import type { JournalEntry, ChatMessage, ReflectionMode } from '../types';
+import type { JournalEntry, ChatMessage, ReflectionMode, ExtractedClaim, ClaimGap } from '../types';
 
 interface JournalWorkspaceProps {
   entry: JournalEntry;
   onUpdateEntry: (updated: JournalEntry) => Promise<void>;
   onSummarizeEntry: (entry: JournalEntry) => Promise<void>;
+  onSealSession: (entry: JournalEntry) => Promise<void>;
   isGenerating: boolean;
   isSummarizing: boolean;
+  isSealing: boolean;
   onSendMessage: (userText: string, mode: ReflectionMode) => Promise<void>;
   errorMessage: string | null;
   onClearError: () => void;
@@ -96,12 +103,37 @@ const PROMPT_SUGGESTIONS: Record<ReflectionMode, string[]> = {
   ],
 };
 
+function getClassificationBadge(classification: 'reverses' | 'abandons' | 'refines') {
+  switch (classification) {
+    case 'reverses':
+      return {
+        label: 'Reverses Prior Stance',
+        bg: 'bg-rose-50 border-rose-200 text-rose-700',
+        dot: 'bg-rose-500',
+      };
+    case 'abandons':
+      return {
+        label: 'Abandons Prior Stance',
+        bg: 'bg-amber-50 border-amber-200 text-amber-800',
+        dot: 'bg-amber-500',
+      };
+    case 'refines':
+      return {
+        label: 'Refines Prior Stance',
+        bg: 'bg-indigo-50 border-indigo-200 text-indigo-700',
+        dot: 'bg-indigo-500',
+      };
+  }
+}
+
 export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
   entry,
   onUpdateEntry,
   onSummarizeEntry,
+  onSealSession,
   isGenerating,
   isSummarizing,
+  isSealing,
   onSendMessage,
   errorMessage,
   onClearError,
@@ -119,7 +151,7 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [entry.messages, isGenerating]);
+  }, [entry.messages, isGenerating, isSealing]);
 
   // Adjust textarea height dynamically
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -131,7 +163,7 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
   };
 
   const handleSend = async () => {
-    if (!inputText.trim() || isGenerating) return;
+    if (!inputText.trim() || isGenerating || isSealing) return;
     const text = inputText.trim();
     setInputText('');
     if (textareaRef.current) {
@@ -180,6 +212,25 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
       '',
     ];
 
+    if (entry.claims && entry.claims.length > 0) {
+      lines.push('## Extracted Stances & Claims (Epistemological Ledger)');
+      entry.claims.forEach((c) => {
+        lines.push(`- **#${c.topicSlug}** (${Math.round(c.conviction * 100)}% Conviction): ${c.statement}`);
+      });
+      lines.push('\n---\n');
+    }
+
+    if (entry.claimGaps && entry.claimGaps.length > 0) {
+      lines.push('## Stance Evolution & Perspective Shifts');
+      entry.claimGaps.forEach((g) => {
+        lines.push(`### Topic: #${g.topicSlug} [${g.classification.toUpperCase()}]`);
+        lines.push(`- **Prior Stance**: ${g.previousClaim}`);
+        lines.push(`- **New Stance**: ${g.newClaim}`);
+        lines.push(`- **Reflective Inquiry**: ${g.question}\n`);
+      });
+      lines.push('\n---\n');
+    }
+
     entry.messages.forEach((msg) => {
       const speaker = msg.role === 'user' ? '**You**' : '**Gemini Reflection**';
       lines.push(`${speaker} (${new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}):`);
@@ -204,7 +255,7 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
       {/* Session Header */}
       <div className="border-b border-neutral-200 bg-white px-6 py-3.5 shadow-2xs">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          {/* Editable Title */}
+          {/* Editable Title & Seal Status */}
           <div className="flex items-center gap-2 flex-1 min-w-[240px]">
             {isEditingTitle ? (
               <input
@@ -217,13 +268,21 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
                 className="w-full rounded-md border border-neutral-300 px-2.5 py-1 text-sm font-semibold text-neutral-900 focus:border-neutral-900 focus:outline-hidden"
               />
             ) : (
-              <h2
-                onClick={() => setIsEditingTitle(true)}
-                title="Click to rename entry"
-                className="cursor-pointer text-base font-semibold text-neutral-900 hover:text-neutral-600 transition-colors line-clamp-1"
-              >
-                {entry.title || 'Untitled Reflection'}
-              </h2>
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2
+                  onClick={() => setIsEditingTitle(true)}
+                  title="Click to rename entry"
+                  className="cursor-pointer text-base font-semibold text-neutral-900 hover:text-neutral-600 transition-colors line-clamp-1"
+                >
+                  {entry.title || 'Untitled Reflection'}
+                </h2>
+                {entry.isSealed && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
+                    <ShieldCheck className="h-3 w-3 text-emerald-600" />
+                    <span>Sealed</span>
+                  </span>
+                )}
+              </div>
             )}
 
             <span className="text-[11px] text-neutral-400 shrink-0">
@@ -232,18 +291,40 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
           </div>
 
           {/* Quick Toolbar Actions */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* Seal Session Button */}
+            {entry.messages.length > 0 && (
+              <button
+                onClick={() => onSealSession(entry)}
+                disabled={isSealing || isGenerating || isSummarizing}
+                id="btn-seal-session"
+                title="Seal session, extract first-person stances, and evaluate topic evolution"
+                className={`flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold transition-all disabled:opacity-50 ${
+                  entry.isSealed
+                    ? 'border-emerald-300 bg-emerald-50/80 text-emerald-900 hover:bg-emerald-100'
+                    : 'border-neutral-900 bg-neutral-900 text-white hover:bg-neutral-800 shadow-xs'
+                }`}
+              >
+                {isSealing ? (
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Lock className="h-3.5 w-3.5" />
+                )}
+                <span>{isSealing ? 'Extracting Claims...' : entry.isSealed ? 'Re-extract & Seal' : 'Seal Session'}</span>
+              </button>
+            )}
+
             {/* Auto Summarize & Tag Button */}
             {entry.messages.length >= 2 && (
               <button
                 onClick={() => onSummarizeEntry(entry)}
-                disabled={isSummarizing || isGenerating}
+                disabled={isSummarizing || isGenerating || isSealing}
                 id="btn-auto-summarize"
                 title="Synthesize conversation, title, and tags with Gemini"
                 className="flex items-center gap-1.5 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100 hover:text-neutral-900 transition-colors disabled:opacity-50"
               >
                 <Sparkles className={`h-3.5 w-3.5 text-amber-500 ${isSummarizing ? 'animate-spin' : ''}`} />
-                <span>{isSummarizing ? 'Synthesizing...' : 'Summarize & Tag'}</span>
+                <span>{isSummarizing ? 'Synthesizing...' : 'Summarize'}</span>
               </button>
             )}
 
@@ -324,7 +405,7 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
         </div>
       )}
 
-      {/* Chat Messages Stream */}
+      {/* Chat Messages Stream & Sealed Claims Display */}
       <div className="flex-1 overflow-y-auto px-4 py-6 sm:px-8">
         <div className="mx-auto max-w-3xl space-y-6">
           {/* Welcome Prompt If Conversation is Empty */}
@@ -437,7 +518,7 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
             );
           })}
 
-          {/* Generating Indicator */}
+          {/* Generating or Sealing Indicator */}
           {isGenerating && (
             <div className="flex gap-3.5 flex-row">
               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-neutral-800 border border-neutral-200">
@@ -449,6 +530,176 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
                   <span className="font-medium">Reflecting on your entry with Gemini 3.6 Flash...</span>
                 </div>
               </div>
+            </div>
+          )}
+
+          {isSealing && (
+            <div className="flex gap-3.5 flex-row">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-900 text-white shadow-xs">
+                <Lock className="h-4 w-4 text-amber-400 animate-pulse" />
+              </div>
+              <div className="rounded-2xl rounded-tl-none border border-amber-200 bg-amber-50/50 p-4 text-xs shadow-2xs">
+                <div className="flex items-center gap-2 text-amber-900">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-amber-600" />
+                  <span className="font-medium">Sealing session: Extracting first-person stances and classifying topic evolution...</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Sealed Session Ledger & Claims Section */}
+          {entry.isSealed && entry.claims && entry.claims.length > 0 && (
+            <div className="mt-8 space-y-6 pt-4 border-t-2 border-neutral-200">
+              {/* Epistemological Ledger Banner */}
+              <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-2xs">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-100 pb-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-900 text-amber-300">
+                      <ShieldCheck className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-neutral-900">
+                        Extracted Claims & Stances ({entry.claims.length})
+                      </h3>
+                      <p className="text-[11px] text-neutral-500">
+                        First-person commitments and stances recorded upon session seal
+                      </p>
+                    </div>
+                  </div>
+
+                  {entry.sealedAt && (
+                    <span className="text-[10px] font-medium text-neutral-400">
+                      Sealed on {new Date(entry.sealedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                    </span>
+                  )}
+                </div>
+
+                {/* Grid of Claims */}
+                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {entry.claims.map((claim) => {
+                    const convictionPct = Math.round(claim.conviction * 100);
+                    return (
+                      <div
+                        key={claim.id}
+                        className="flex flex-col justify-between rounded-xl border border-neutral-200 bg-neutral-50/70 p-3.5 transition-all hover:bg-neutral-50 hover:border-neutral-300"
+                      >
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className="inline-flex items-center rounded-md bg-white border border-neutral-200 px-2 py-0.5 text-[10px] font-semibold text-neutral-700">
+                              #{claim.topicSlug}
+                            </span>
+                            <span className="text-[10px] font-bold text-neutral-600">
+                              {convictionPct}% Conviction
+                            </span>
+                          </div>
+                          <p className="text-xs font-medium text-neutral-900 leading-relaxed">
+                            "{claim.statement}"
+                          </p>
+                        </div>
+
+                        {/* Conviction Bar */}
+                        <div className="mt-3">
+                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200">
+                            <div
+                              className={`h-full rounded-full transition-all ${
+                                convictionPct >= 75
+                                  ? 'bg-emerald-600'
+                                  : convictionPct >= 45
+                                  ? 'bg-amber-500'
+                                  : 'bg-neutral-500'
+                              }`}
+                              style={{ width: `${Math.max(8, convictionPct)}%` }}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Evolution Gaps (Reverses / Abandons / Refines) */}
+              {entry.claimGaps && entry.claimGaps.length > 0 && (
+                <div className="rounded-2xl border border-indigo-100 bg-indigo-50/30 p-5 shadow-2xs">
+                  <div className="flex items-center gap-2.5 mb-3.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-600 text-white">
+                      <GitBranch className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-sm font-bold text-indigo-950">
+                        Perspective Shifts & Historical Evolution ({entry.claimGaps.length})
+                      </h3>
+                      <p className="text-[11px] text-indigo-700">
+                        Classified shifts comparing this session against historical stances on shared topics
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3.5">
+                    {entry.claimGaps.map((gap) => {
+                      const badge = getClassificationBadge(gap.classification);
+                      return (
+                        <div
+                          key={gap.id}
+                          className="rounded-xl border border-indigo-100 bg-white p-4 text-xs shadow-2xs space-y-3"
+                        >
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${badge.bg}`}>
+                              <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
+                              {badge.label}
+                            </span>
+                            <span className="text-[10px] font-semibold text-neutral-500">
+                              Topic: #{gap.topicSlug}
+                            </span>
+                          </div>
+
+                          {/* Comparison Grid */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-[11px]">
+                            <div className="rounded-lg bg-neutral-50 p-2.5 border border-neutral-200">
+                              <span className="text-[10px] font-semibold text-neutral-400 uppercase tracking-wide block mb-1">
+                                Prior Stance
+                              </span>
+                              <p className="text-neutral-700 italic">"{gap.previousClaim}"</p>
+                            </div>
+
+                            <div className="rounded-lg bg-indigo-50/50 p-2.5 border border-indigo-200/60">
+                              <span className="text-[10px] font-semibold text-indigo-600 uppercase tracking-wide block mb-1">
+                                New Sealed Stance
+                              </span>
+                              <p className="text-indigo-950 font-medium">"{gap.newClaim}"</p>
+                            </div>
+                          </div>
+
+                          {/* Reflective Inquiry Question */}
+                          <div className="rounded-lg bg-amber-50/60 border border-amber-200/70 p-3">
+                            <div className="flex items-start gap-2">
+                              <HelpCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                              <div className="flex-1">
+                                <span className="text-[10px] font-bold text-amber-900 uppercase tracking-wide">
+                                  Reflective Inquiry
+                                </span>
+                                <p className="text-neutral-800 text-xs font-normal mt-0.5 leading-relaxed">
+                                  {gap.question}
+                                </p>
+                                <button
+                                  onClick={() => {
+                                    setInputText(gap.question);
+                                    if (textareaRef.current) textareaRef.current.focus();
+                                  }}
+                                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-amber-800 hover:text-amber-950 hover:underline cursor-pointer"
+                                >
+                                  <span>Explore this question in reflection</span>
+                                  <ArrowRight className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
@@ -488,14 +739,14 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
               placeholder={`Write your thought or reflection in ${activeModeObj.label}... (Press Enter to send)`}
-              disabled={isGenerating}
+              disabled={isGenerating || isSealing}
               className="w-full resize-none bg-transparent px-2 py-1 text-xs text-neutral-900 placeholder:text-neutral-400 focus:outline-hidden disabled:opacity-50"
             />
 
             <button
               onClick={handleSend}
               id="btn-send-message"
-              disabled={!inputText.trim() || isGenerating}
+              disabled={!inputText.trim() || isGenerating || isSealing}
               title="Send to Gemini"
               className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-neutral-900 text-white shadow-xs hover:bg-neutral-800 disabled:opacity-40 transition-all cursor-pointer"
             >
@@ -512,3 +763,4 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
     </div>
   );
 };
+
