@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Sparkles, Shield, Lock, BookOpen, MessageSquare, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { NotebookPen, Shield, Lock, BookOpen, Sparkles, ArrowRight, CheckCircle2, Compass, GitBranch } from 'lucide-react';
 import { signInWithGoogle } from '../lib/firebase';
 
 interface AuthLandingProps {
@@ -25,24 +25,27 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onSuccess }) => {
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-neutral-50 text-neutral-900">
+    <div className="flex min-h-screen flex-col bg-[#F7F3ED] text-[#292321]">
       {/* Top Banner */}
-      <header className="border-b border-neutral-200 bg-white px-6 py-4">
+      <header className="border-b border-[#E4DCD3] bg-[#FFFDF9] px-6 py-4">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-900 text-white">
-              <Sparkles className="h-4 w-4 text-amber-300" />
+          <div className="flex items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#3B2F2A] text-[#FFFDF9] shadow-xs">
+              <NotebookPen className="h-4 w-4 text-[#E8D5C0]" />
             </div>
-            <span className="text-lg font-semibold tracking-tight text-neutral-900">ReflectAI</span>
+            <div>
+              <span className="font-serif text-lg font-semibold tracking-tight text-[#292321]">MindtrailAI</span>
+              <span className="ml-2 text-xs font-serif italic text-[#7A6255] hidden sm:inline">Second Thought</span>
+            </div>
           </div>
           <button
             onClick={handleSignIn}
             id="btn-nav-sign-in"
             disabled={loading}
-            className="flex items-center gap-2 rounded-lg bg-neutral-900 px-4 py-2 text-xs font-medium text-white shadow-sm hover:bg-neutral-800 transition-colors disabled:opacity-50"
+            className="flex items-center gap-2 rounded-lg bg-[#3B2F2A] px-4 py-2 text-xs font-medium text-[#FFFDF9] shadow-xs hover:bg-[#292321] active:scale-98 transition-all disabled:opacity-50 cursor-pointer"
           >
             <span>{loading ? 'Connecting...' : 'Sign In with Google'}</span>
-            <ArrowRight className="h-3.5 w-3.5" />
+            <ArrowRight className="h-3.5 w-3.5 text-[#E8D5C0]" />
           </button>
         </div>
       </header>
@@ -50,29 +53,29 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onSuccess }) => {
       {/* Hero Section */}
       <main className="flex-1">
         <div className="mx-auto max-w-4xl px-6 py-16 text-center">
-          <div className="inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs text-neutral-600 shadow-xs mb-6">
-            <Shield className="h-3.5 w-3.5 text-emerald-600" />
-            <span>Private User-Isolated Cloud Firestore &middot; Gemini 3.6 Flash</span>
+          <div className="inline-flex items-center gap-2 rounded-full border border-[#E4DCD3] bg-[#FFFDF9] px-3.5 py-1 text-xs text-[#7A6255] shadow-xs mb-6 font-serif italic">
+            <NotebookPen className="h-3.5 w-3.5 text-[#B9825A]" />
+            <span>Second Thought &middot; A record of what you believed &mdash; and what changed</span>
           </div>
 
-          <h1 className="text-4xl font-bold tracking-tight sm:text-5xl text-neutral-900">
-            A private space for your thoughts, <br className="hidden sm:inline" />
-            elevated by thoughtful AI reflection.
+          <h1 className="font-serif text-4xl font-semibold tracking-tight sm:text-5xl text-[#292321] leading-tight">
+            A private space for your convictions, <br className="hidden sm:inline" />
+            elevated by thoughtful reflection.
           </h1>
 
-          <p className="mx-auto mt-4 max-w-2xl text-base text-neutral-600 sm:text-lg">
-            Write daily journal entries, unpack complex dilemmas, brainstorm ideas, and converse in multi-turn dialogues with Gemini. All records are isolated strictly to your authenticated account.
+          <p className="mx-auto mt-4 max-w-2xl text-base text-[#7A6255] sm:text-lg font-serif">
+            Capture daily thoughts, unpack difficult decisions, and track how your philosophical stances evolve over time. All journals and stance records are securely isolated to your private account.
           </p>
 
           {/* Primary CTA Box */}
-          <div className="mx-auto mt-8 max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-sm">
-            <h2 className="text-sm font-semibold text-neutral-900">Sign in to your private workspace</h2>
-            <p className="mt-1 text-xs text-neutral-500">
+          <div className="mx-auto mt-8 max-w-md rounded-2xl border border-[#E4DCD3] bg-[#FFFDF9] p-6 shadow-sm">
+            <h2 className="font-serif text-base font-semibold text-[#292321]">Open your private journal</h2>
+            <p className="mt-1 text-xs text-[#8C817A]">
               Federated Google Authentication keeps your credentials safe without storing passwords.
             </p>
 
             {error && (
-              <div className="mt-4 rounded-lg bg-rose-50 p-3 text-xs text-rose-700 border border-rose-200 text-left">
+              <div className="mt-4 rounded-lg bg-rose-50 p-3 text-xs text-rose-800 border border-rose-200 text-left">
                 <p className="font-semibold">Sign-in Notice:</p>
                 <p className="mt-0.5">{error}</p>
               </div>
@@ -82,7 +85,7 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onSuccess }) => {
               onClick={handleSignIn}
               id="btn-google-sign-in"
               disabled={loading}
-              className="mt-5 flex w-full items-center justify-center gap-3 rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm font-medium text-neutral-800 shadow-xs hover:bg-neutral-50 hover:border-neutral-400 transition-all disabled:opacity-60 cursor-pointer"
+              className="mt-5 flex w-full items-center justify-center gap-3 rounded-xl border border-[#E4DCD3] bg-[#F7F3ED] px-4 py-3 text-sm font-medium text-[#292321] shadow-xs hover:bg-[#E8D5C0]/40 hover:border-[#B9825A]/50 transition-all disabled:opacity-60 cursor-pointer"
             >
               <svg className="h-4 w-4" viewBox="0 0 24 24">
                 <path
@@ -105,44 +108,44 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onSuccess }) => {
               <span>{loading ? 'Authenticating with Google...' : 'Continue with Google Account'}</span>
             </button>
 
-            <div className="mt-4 flex items-center justify-center gap-4 text-[11px] text-neutral-400">
+            <div className="mt-4 flex items-center justify-center gap-4 text-[11px] text-[#8C817A]">
               <span className="flex items-center gap-1">
-                <Lock className="h-3 w-3" /> End-to-End User Isolation
+                <Lock className="h-3 w-3 text-[#B9825A]" /> End-to-End User Isolation
               </span>
               <span>&middot;</span>
-              <span>No Password Stored</span>
+              <span>No Passwords Stored</span>
             </div>
           </div>
 
           {/* Three Feature Highlights */}
           <div className="mx-auto mt-16 grid max-w-4xl grid-cols-1 gap-6 sm:grid-cols-3 text-left">
-            <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-xs">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-100 text-neutral-900 mb-3">
-                <BookOpen className="h-4 w-4" />
+            <div className="rounded-xl border border-[#E4DCD3] bg-[#FFFDF9] p-5 shadow-xs">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#F7F3ED] text-[#3B2F2A] border border-[#E4DCD3] mb-3">
+                <BookOpen className="h-4 w-4 text-[#B9825A]" />
               </div>
-              <h3 className="text-sm font-semibold text-neutral-900">Multi-Turn Journaling</h3>
-              <p className="mt-1.5 text-xs text-neutral-500 leading-relaxed">
-                Start with a thought, feeling, or dilemma. Converse back and forth with Gemini to explore nuanced perspectives.
+              <h3 className="font-serif text-sm font-semibold text-[#292321]">Literary Reflection Modes</h3>
+              <p className="mt-1.5 text-xs text-[#7A6255] leading-relaxed font-sans">
+                Deep inquiry, creative brainstorming, actionable priorities, and gratitude journaling tailored to your thought process.
               </p>
             </div>
 
-            <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-xs">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-100 text-neutral-900 mb-3">
-                <Sparkles className="h-4 w-4 text-amber-500" />
+            <div className="rounded-xl border border-[#E4DCD3] bg-[#FFFDF9] p-5 shadow-xs">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#F7F3ED] text-[#3B2F2A] border border-[#E4DCD3] mb-3">
+                <GitBranch className="h-4 w-4 text-[#B9825A]" />
               </div>
-              <h3 className="text-sm font-semibold text-neutral-900">Adaptive AI Modes</h3>
-              <p className="mt-1.5 text-xs text-neutral-500 leading-relaxed">
-                Switch between Deep Reflection, Brainstorming, Actionable Next Steps, and Gratitude to match your mental state.
+              <h3 className="font-serif text-sm font-semibold text-[#292321]">Perspective Shift Tracking</h3>
+              <p className="mt-1.5 text-xs text-[#7A6255] leading-relaxed font-sans">
+                Automatically detects when a newer reflection refines, abandons, or reverses an earlier philosophical stance.
               </p>
             </div>
 
-            <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-xs">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-neutral-100 text-neutral-900 mb-3">
-                <Shield className="h-4 w-4 text-emerald-600" />
+            <div className="rounded-xl border border-[#E4DCD3] bg-[#FFFDF9] p-5 shadow-xs">
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[#F7F3ED] text-[#3B2F2A] border border-[#E4DCD3] mb-3">
+                <Shield className="h-4 w-4 text-[#B9825A]" />
               </div>
-              <h3 className="text-sm font-semibold text-neutral-900">Firestore Isolation</h3>
-              <p className="mt-1.5 text-xs text-neutral-500 leading-relaxed">
-                Rules strictly enforce that only your authenticated Firebase UID can query or modify your reflection entries.
+              <h3 className="font-serif text-sm font-semibold text-[#292321]">Firestore Isolation</h3>
+              <p className="mt-1.5 text-xs text-[#7A6255] leading-relaxed font-sans">
+                Security rules enforce that only your authenticated Firebase UID can access or modify your personal reflections.
               </p>
             </div>
           </div>
@@ -150,11 +153,11 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onSuccess }) => {
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-neutral-200 bg-white py-4 px-6 text-center text-xs text-neutral-500">
+      <footer className="border-t border-[#E4DCD3] bg-[#FFFDF9] py-4 px-6 text-center text-xs text-[#8C817A]">
         <div className="mx-auto flex max-w-6xl items-center justify-between">
-          <p>ReflectAI &copy; {new Date().getFullYear()} &middot; Built with Gemini 3.6 Flash & Cloud Firestore</p>
-          <div className="flex items-center gap-2 text-emerald-700 font-medium">
-            <CheckCircle2 className="h-3.5 w-3.5" />
+          <p className="font-serif">MindtrailAI &middot; Second Thought &copy; {new Date().getFullYear()}</p>
+          <div className="flex items-center gap-2 text-[#7A6255] font-medium font-serif italic">
+            <CheckCircle2 className="h-3.5 w-3.5 text-[#B9825A]" />
             <span>Secure Cloud Architecture</span>
           </div>
         </div>

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Tag, MessageSquare, Trash2, Calendar, Sparkles, ChevronLeft, ChevronRight, ShieldCheck } from 'lucide-react';
+import { Search, Tag, MessageSquare, Trash2, Calendar, Sparkles, ChevronLeft, ChevronRight, ShieldCheck, NotebookPen } from 'lucide-react';
 import type { JournalEntry } from '../types';
 
 interface SidebarHistoryProps {
@@ -87,33 +87,33 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
       {/* Mobile Backdrop */}
       {isOpen && (
         <div
-          className="fixed inset-0 z-20 bg-neutral-900/30 backdrop-blur-xs md:hidden"
+          className="fixed inset-0 z-20 bg-[#3B2F2A]/30 backdrop-blur-xs md:hidden"
           onClick={onToggle}
         />
       )}
 
       <aside
-        className={`fixed inset-y-0 left-0 z-20 flex w-80 flex-col border-r border-neutral-200 bg-white transition-transform duration-200 ease-in-out md:static md:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-20 flex w-80 flex-col border-r border-[#E4DCD3] bg-[#FFFDF9] transition-transform duration-200 ease-in-out md:static md:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
         style={{ height: 'calc(100vh - 53px)' }}
       >
         {/* Search & Tag Filter Bar */}
-        <div className="border-b border-neutral-200 p-3 space-y-2">
+        <div className="border-b border-[#E4DCD3] p-3 space-y-2 bg-[#FFFDF9]">
           <div className="relative">
-            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-neutral-400" />
+            <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[#8C817A]" />
             <input
               type="text"
               id="input-search-history"
               placeholder="Search reflections & tags..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-neutral-200 bg-neutral-50 py-1.5 pl-8 pr-3 text-xs text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-900 focus:bg-white focus:outline-hidden"
+              className="w-full rounded-lg border border-[#E4DCD3] bg-[#F7F3ED] py-1.5 pl-8 pr-3 text-xs text-[#292321] placeholder:text-[#8C817A] focus:border-[#3B2F2A] focus:bg-[#FFFDF9] focus:outline-hidden"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2 text-xs text-neutral-400 hover:text-neutral-700"
+                className="absolute right-2.5 top-2 text-xs text-[#8C817A] hover:text-[#292321]"
               >
                 &times;
               </button>
@@ -127,8 +127,8 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                 onClick={() => setSelectedTag(null)}
                 className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
                   selectedTag === null
-                    ? 'bg-neutral-900 text-white'
-                    : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                    ? 'bg-[#3B2F2A] text-[#FFFDF9]'
+                    : 'bg-[#F7F3ED] text-[#7A6255] border border-[#E4DCD3] hover:bg-[#E8D5C0]/40'
                 }`}
               >
                 All
@@ -139,8 +139,8 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                   onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
                   className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
                     selectedTag === tag
-                      ? 'bg-neutral-900 text-white'
-                      : 'bg-neutral-100 text-neutral-600 hover:bg-neutral-200'
+                      ? 'bg-[#3B2F2A] text-[#FFFDF9]'
+                      : 'bg-[#F7F3ED] text-[#7A6255] border border-[#E4DCD3] hover:bg-[#E8D5C0]/40'
                   }`}
                 >
                   <Tag className="h-2.5 w-2.5" />
@@ -154,19 +154,19 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
         {/* History Entries List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
           {groupedEntries.length === 0 ? (
-            <div className="py-12 text-center text-xs text-neutral-400 px-4">
-              <Calendar className="mx-auto h-7 w-7 text-neutral-300 mb-2" />
-              <p className="font-medium text-neutral-600">No reflections found</p>
-              <p className="mt-1 text-[11px]">
+            <div className="py-12 text-center text-xs text-[#8C817A] px-4 font-serif">
+              <NotebookPen className="mx-auto h-7 w-7 text-[#B9825A]/60 mb-2" />
+              <p className="font-semibold text-[#292321]">No reflections found</p>
+              <p className="mt-1 text-[11px] text-[#7A6255]">
                 {entries.length === 0
-                  ? 'Your saved reflections and conversations will appear here.'
+                  ? 'Your saved reflections and stance evolution will appear here.'
                   : 'No entries match your search query.'}
               </p>
             </div>
           ) : (
             groupedEntries.map((group) => (
               <div key={group.label} className="space-y-1">
-                <div className="px-2 py-1 text-[11px] font-semibold tracking-wider uppercase text-neutral-400">
+                <div className="px-2 py-1 text-[10px] font-semibold tracking-wider uppercase text-[#8C817A] font-serif">
                   {group.label}
                 </div>
                 <div className="space-y-1">
@@ -178,23 +178,23 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                       <div
                         key={entry.id}
                         onClick={() => onSelectEntry(entry)}
-                        className={`group relative flex cursor-pointer flex-col rounded-lg p-2.5 text-left transition-all ${
+                        className={`group relative flex cursor-pointer flex-col rounded-xl p-2.5 text-left transition-all ${
                           isActive
-                            ? 'bg-neutral-900 text-white shadow-xs'
-                            : 'hover:bg-neutral-100 text-neutral-800'
+                            ? 'bg-[#3B2F2A] text-[#FFFDF9] shadow-xs'
+                            : 'hover:bg-[#F7F3ED] text-[#292321]'
                         }`}
                       >
                         <div className="flex items-start justify-between gap-2">
                           <h4
-                            className={`text-xs font-medium line-clamp-1 flex-1 ${
-                              isActive ? 'text-white' : 'text-neutral-900'
+                            className={`text-xs font-serif font-medium line-clamp-1 flex-1 ${
+                              isActive ? 'text-[#FFFDF9]' : 'text-[#292321]'
                             }`}
                           >
                             {entry.title || 'Untitled Reflection'}
                           </h4>
                           <span
-                            className={`text-[10px] shrink-0 ${
-                              isActive ? 'text-neutral-300' : 'text-neutral-400'
+                            className={`text-[10px] shrink-0 font-sans ${
+                              isActive ? 'text-[#E8D5C0]' : 'text-[#8C817A]'
                             }`}
                           >
                             {formatDate(entry.updatedAt || entry.createdAt)}
@@ -203,8 +203,8 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
 
                         {entry.summary && (
                           <p
-                            className={`mt-1 text-[11px] line-clamp-2 leading-relaxed ${
-                              isActive ? 'text-neutral-300' : 'text-neutral-500'
+                            className={`mt-1 text-[11px] line-clamp-2 leading-relaxed font-serif ${
+                              isActive ? 'text-[#E8D5C0]' : 'text-[#7A6255]'
                             }`}
                           >
                             {entry.summary}
@@ -215,19 +215,19 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                           <div className="flex items-center gap-1.5">
                             <span
                               className={`flex items-center gap-0.5 text-[10px] font-medium ${
-                                isActive ? 'text-neutral-300' : 'text-neutral-500'
+                                isActive ? 'text-[#E8D5C0]' : 'text-[#7A6255]'
                               }`}
                             >
                               <MessageSquare className="h-2.5 w-2.5" />
-                              <span>{turnCount} {turnCount === 1 ? 'turn' : 'turns'}</span>
+                              <span>{turnCount} {turnCount === 1 ? 'thought' : 'thoughts'}</span>
                             </span>
 
                             {entry.tags && entry.tags.length > 0 && (
                               <span
-                                className={`rounded px-1 py-0.2 text-[9px] ${
+                                className={`rounded px-1.5 py-0.2 text-[9px] ${
                                   isActive
-                                    ? 'bg-neutral-800 text-neutral-200'
-                                    : 'bg-neutral-200 text-neutral-600'
+                                    ? 'bg-[#292321] text-[#E8D5C0]'
+                                    : 'bg-[#E8D5C0]/60 text-[#3B2F2A]'
                                 }`}
                               >
                                 #{entry.tags[0]}
@@ -237,10 +237,10 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                             {entry.isSealed && (
                               <span
                                 title="Sealed session with extracted stances"
-                                className={`inline-flex items-center gap-0.5 rounded px-1 py-0.2 text-[9px] font-medium ${
+                                className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.2 text-[9px] font-medium ${
                                   isActive
-                                    ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/50'
-                                    : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    ? 'bg-[#B9825A]/30 text-[#E8D5C0] border border-[#B9825A]/40'
+                                    : 'bg-[#F7F3ED] text-[#B9825A] border border-[#E4DCD3]'
                                 }`}
                               >
                                 <ShieldCheck className="h-2.5 w-2.5" />
@@ -257,10 +257,10 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                               onDeleteRequest(entry);
                             }}
                             title="Delete entry"
-                            className={`opacity-0 group-hover:opacity-100 rounded p-1 transition-opacity ${
+                            className={`opacity-0 group-hover:opacity-100 rounded p-1 transition-opacity cursor-pointer ${
                               isActive
-                                ? 'text-neutral-300 hover:bg-neutral-800 hover:text-rose-300'
-                                : 'text-neutral-400 hover:bg-neutral-200 hover:text-rose-600'
+                                ? 'text-[#E8D5C0] hover:bg-[#292321] hover:text-rose-300'
+                                : 'text-[#8C817A] hover:bg-[#E8D5C0]/40 hover:text-rose-600'
                             }`}
                           >
                             <Trash2 className="h-3 w-3" />
@@ -276,8 +276,8 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
         </div>
 
         {/* Sidebar Footer Info */}
-        <div className="border-t border-neutral-200 p-2.5 text-center text-[11px] text-neutral-400">
-          <span>{entries.length} Total Saved Reflections</span>
+        <div className="border-t border-[#E4DCD3] p-2.5 text-center text-[11px] text-[#8C817A] font-serif">
+          <span>{entries.length} Total Recorded Reflections</span>
         </div>
       </aside>
     </>

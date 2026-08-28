@@ -1,14 +1,14 @@
-# ReflectAI — Personal Reflection & Epistemological Stance Tracker
+# MindtrailAI — Personal Reflection & Epistemological Stance Tracker
 
 > An intelligent journaling companion that tracks the philosophical, personal, and career positions you commit to across reflection sessions, automatically detecting and probing when a later entry refines, abandons, or reverses an earlier stance.
 
-**Live Demo**: [https://reflectai-journal-reflection-companion.ai.studio/](https://reflectai-journal-reflection-companion.ai.studio/)
+**Live Demo**: [https://mindtrailai-journal-reflection-companion.ai.studio/](https://mindtrailai-journal-reflection-companion.ai.studio/)
 
 ---
 
 ## Beyond the Base Spec: Stance Extraction & Perspective Shift Detection
 
-Standard journaling apps treat reflections as isolated, ephemeral entries. ReflectAI introduces an epistemological memory layer that turns conversational journaling into a longitudinal map of personal evolution:
+Standard journaling apps treat reflections as isolated, ephemeral entries. MindtrailAI introduces an epistemological memory layer that turns conversational journaling into a longitudinal map of personal evolution:
 
 1. **Stance & Claim Extraction with Conviction Scoring**:
    When sealing a session, the backend analyzes the conversation to extract explicit, first-person self-commitments, beliefs, rules, or work philosophies the user expressed. Each claim is assigned a normalized conviction score between `0.0` (hesitant / exploratory) and `1.0` (firm / dogmatic).
@@ -28,7 +28,7 @@ Standard journaling apps treat reflections as isolated, ephemeral entries. Refle
 
 | Layer / Component | Technology | Purpose |
 | :--- | :--- | :--- |
-| **Frontend Client** | React 19 + TypeScript + Tailwind CSS + Lucide Icons | Responsive single-page reflection dashboard with real-time Firestore sync and Markdown transcript rendering. |
+| **Frontend Client** | React 19 + TypeScript + Tailwind CSS + Lucide Icons | Responsive single-page reflection dashboard with real-time Firestore sync, dynamic stance timelines, and Markdown transcript rendering. |
 | **Backend Service** | Node.js Express + TypeScript (`server.ts`) | Reverse proxy, token verification, per-user rate limiting, daily quota metering, and structured Gemini generation. |
 | **User Identity** | Firebase Authentication | Federated Google Sign-In with zero plaintext credential handling. |
 | **Database & Persistence** | Cloud Firestore | Client-SDK persistence for journal interactions under owner-bound rules; Admin-SDK persistence for stance claims (`claims`), topic slug vocabularies (`meta/topics`), and daily quota counters (`quota`). |
@@ -40,20 +40,20 @@ Standard journaling apps treat reflections as isolated, ephemeral entries. Refle
 
 ## Security Architecture
 
-ReflectAI implements defense-in-depth across the API and persistence boundaries in the following order:
+MindtrailAI implements defense-in-depth across the API and persistence boundaries in the following order:
 
 1. **`requireUser` Global Middleware (`server.ts`)**:
    - Mounted globally on `app.use('/api', requireUser)` before any route handler.
    - Extracts the Bearer token from the incoming `Authorization` header.
-   - Executes revocation-checked verification via `getAuth().verifyIdToken(token, true)`.
+   - Executes cryptographic verification via `getAuth().verifyIdToken(token)` validating audience, project ID, signature, and expiration.
    - Explicitly inspects `decodedToken.firebase.sign_in_provider` and rejects anonymous accounts with HTTP `403 Forbidden` (`ANONYMOUS_ACCESS_FORBIDDEN`).
    - On authentication failure, returns HTTP `401 Unauthorized` with a standardized, stable error code (`UNAUTHORIZED_TOKEN`, `UNAUTHORIZED_MISSING_TOKEN`) and an opaque correlation ID (`correlationId`). Internal Firebase or cryptographic error messages are logged server-side only and never leaked to the client.
 2. **Per-User Cost Controls & Rate Limiting (`enforceGeminiQuota`)**:
    - Mounted on `app.use('/api/gemini', enforceGeminiQuota)` covering all three Gemini AI endpoints (`/api/gemini/reflect`, `/api/gemini/summarize`, `/api/gemini/seal-session`).
    - **In-Memory Token Bucket**: Allows up to 20 requests per minute per `req.uid`. Refills continuously (1 token / 3,000 ms) and returns HTTP `429 Too Many Requests` with code `RATE_LIMITED` and a correlation ID when exhausted.
    - **Daily Firestore Quota Counter**: Tracks usage at `users/{uid}/quota/{YYYY-MM-DD}` using an atomic transaction with the Firebase Admin SDK. Enforces the daily limit defined by the `DAILY_CALL_LIMIT` environment variable (default: `120` calls/day). When exceeded, returns HTTP `429` with code `DAILY_LIMIT_REACHED`.
-3. **Admin-Only Quota Locking in Security Rules**:
-   - `firestore.rules` enforces `allow write: if false;` on `users/{userId}/quota/{doc}`, ensuring quota documents can only be written and incremented by the Admin SDK. Users cannot reset or tamper with their call limits from the browser developer console.
+3. **Admin-Only Quota & Epistemological Stance Locking in Security Rules**:
+   - `firestore.rules` enforces `allow write: if false;` on `users/{userId}/quota/{doc}`, `users/{userId}/claims/{claimId}`, and `users/{userId}/meta/{metaId}`. This ensures quota documents and historical claims can only be written and updated by the Admin SDK. Users cannot reset call limits or alter claims from the browser developer console.
 4. **Draft-Preserving Client Interceptors (`src/App.tsx`)**:
    - The custom `authFetch` wrapper attaches `Authorization: Bearer <token>` to all `/api` calls.
    - If an HTTP `401` is received, an in-place Re-authentication modal is presented without navigating away, resetting input fields, or clearing the active reflection buffer.
@@ -67,7 +67,7 @@ ReflectAI implements defense-in-depth across the API and persistence boundaries 
 | **2. Planning & Reasoning** | System instruction bypass; persona hijacking; unexpected output format deviations. | Server-side system instruction boundaries; structured response typing via `@google/genai` `Type.OBJECT`; defensive parsing and numeric clamping on all returned fields. |
 | **3. Tool & API Execution** | Upstream API outages (`503`), quota limits (`429`), model deprecation (`404`), or transient infrastructure failures. | Resilient 4-tier model fallback ladder: `gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-flash-latest` → `gemini-3.7-flash` catching recoverable HTTP errors before surfacing issues to the user. |
 | **4. Memory & State** | Cross-user data leakage; quota tampering; browser cache loss during session expiration. | Client-side Firestore rules enforcing `request.auth.uid == userId`; `quota` subcollection write-locked to Admin SDK transactions; client-side non-destructive error handling preserving draft text across 401/429 states. |
-| **5. Inter-System & Auth** | Credential theft; client-side API key scraping; anonymous auth abuse. | Zero Gemini API keys in client code; revocation-checked `verifyIdToken(token, true)` on all `/api` endpoints; rejection of anonymous providers (`403`). |
+| **5. Inter-System & Auth** | Credential theft; client-side API key scraping; anonymous auth abuse. | Zero Gemini API keys in client code; cryptographic `verifyIdToken(token)` on all `/api` endpoints; rejection of anonymous providers (`403`). |
 
 ---
 
@@ -145,7 +145,7 @@ gcloud projects add-iam-policy-binding ${PROJECT_ID} \
 
 ### 3. Deploy Container to Cloud Run
 ```bash
-gcloud run deploy reflect-ai \
+gcloud run deploy mindtrail-ai \
   --source . \
   --platform managed \
   --region us-central1 \
@@ -159,12 +159,12 @@ gcloud run deploy reflect-ai \
 ### 4. Apply Campaign Verification Label & Verify
 ```bash
 # Apply mandatory verification label
-gcloud run services update reflect-ai \
+gcloud run services update mindtrail-ai \
   --update-labels=dev-tutorial=cloud-run-ai-challenge \
   --region=us-central1
 
 # Verify label application
-gcloud run services describe reflect-ai \
+gcloud run services describe mindtrail-ai \
   --region=us-central1 \
   --format='value(metadata.labels)'
 ```
@@ -225,4 +225,3 @@ During our pre-production security audit, an architectural vulnerability was ide
 
 - **Strict Server-Authoritative Epistemological Persistence**: Stance claims (`users/{uid}/claims`), topic vocabularies (`users/{uid}/meta/topics`), and rate-limit quotas (`users/{uid}/quota`) are write-locked with `allow write: if false;` in Firestore security rules and modified strictly via the Firebase Admin SDK in backend transactions and batch writes.
 - **Client Ownership Scope**: Users retain client-SDK read/write access exclusively to their personal conversational reflections (`users/{uid}/interactions/{interactionId}`) and profile documents under owner-bound rules (`request.auth.uid == userId`), preventing any cross-user data leakage.
-

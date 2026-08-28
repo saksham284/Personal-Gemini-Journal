@@ -1,6 +1,6 @@
 {
-  "name": "ReflectAI - Journal & Reflection Companion",
-  "description": "User-authenticated personal journaling and multi-turn reflection workspace powered by Gemini and Firestore.",
+  "name": "MindtrailAI - Second Thought",
+  "description": "Second Thought: A record of what you believed — and what changed. Epistemological personal journaling and reflection companion powered by Gemini and Firestore.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

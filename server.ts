@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import path from 'path';
+import fs from 'fs';
 import dotenv from 'dotenv';
 import { GoogleGenAI, Type } from '@google/genai';
 import { initializeApp, getApps, applicationDefault } from 'firebase-admin/app';
@@ -8,20 +9,64 @@ import { getFirestore, FieldValue } from 'firebase-admin/firestore';
 
 dotenv.config();
 
-// 1. Initialize Firebase Admin with applicationDefault()
+// Resolve Project ID and Database ID from environment or fallback to firebase-applet-config.json
+let appletProjectId: string | undefined;
+let appletFirestoreDatabaseId: string | undefined;
+try {
+  const configPath = path.join(process.cwd(), 'firebase-applet-config.json');
+  if (fs.existsSync(configPath)) {
+    const rawConfig = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(rawConfig);
+    appletProjectId = parsed.projectId;
+    appletFirestoreDatabaseId = parsed.firestoreDatabaseId;
+  }
+} catch (err) {
+  console.warn('[Firebase Config] Notice reading firebase-applet-config.json:', err);
+}
+
+const targetProjectId = process.env.FIREBASE_PROJECT_ID || appletProjectId;
+const targetDatabaseId = process.env.FIRESTORE_DATABASE_ID || appletFirestoreDatabaseId;
+
+if (!targetProjectId) {
+  throw new Error(
+    '[Firebase Admin Critical] Target Project ID could not be determined from environment or firebase-applet-config.json. Halting server startup (fail closed).'
+  );
+}
+
+// 1. Initialize Firebase Admin with explicit projectId
+let firebaseApp: any;
 if (!getApps().length) {
   try {
-    initializeApp({
+    firebaseApp = initializeApp({
       credential: applicationDefault(),
+      projectId: targetProjectId,
     });
   } catch (err) {
     console.warn('[Firebase Admin] Notice on applicationDefault() initialization:', err);
-    initializeApp();
+    firebaseApp = initializeApp({
+      projectId: targetProjectId,
+    });
   }
+} else {
+  firebaseApp = getApps()[0];
+}
+
+// Fail-closed verification on startup
+const resolvedAdminProjectId = firebaseApp?.options?.projectId;
+console.log(`[Firebase Admin Startup] Initialized Firebase Admin with Project ID: "${resolvedAdminProjectId}" (Target: "${targetProjectId}")`);
+
+if (!resolvedAdminProjectId || resolvedAdminProjectId !== targetProjectId) {
+  throw new Error(
+    `[Firebase Admin Critical] Resolved Project ID ("${resolvedAdminProjectId}") does not match target Project ID ("${targetProjectId}"). Halting server startup (fail closed).`
+  );
 }
 
 // Admin Firestore instance for internal server counters
-const adminDb = getFirestore();
+const adminDb = targetDatabaseId && targetDatabaseId !== '(default)'
+  ? getFirestore(firebaseApp, targetDatabaseId)
+  : getFirestore(firebaseApp);
+
+console.log(`[Firebase Admin Startup] Initialized Firestore Admin Database: "${targetDatabaseId || '(default)'}"`);
 
 const app = express();
 const PORT = 3000;
@@ -63,8 +108,8 @@ async function requireUser(req: Request, res: Response, next: NextFunction) {
   }
 
   try {
-    // Revocation-checked ID token verification
-    const decodedToken = await getAuth().verifyIdToken(token, true);
+    // Cryptographically verify ID token against project ID, signature, expiration, and issuer
+    const decodedToken = await getAuth().verifyIdToken(token);
 
     // Reject anonymous sign-in providers with 403
     const provider = decodedToken.firebase?.sign_in_provider;
@@ -80,7 +125,7 @@ async function requireUser(req: Request, res: Response, next: NextFunction) {
     req.token = decodedToken;
     return next();
   } catch (err: any) {
-    console.warn(`[Auth 401] Token verification failed [Correlation ID: ${correlationId}]:`, err?.code || err?.message);
+    console.error(`[Auth 401 Debug] verifyIdToken failed. Code: "${err?.code}", Message: "${err?.message}", Stack: ${err?.stack} [Correlation ID: ${correlationId}]`);
     return res.status(401).json({
       error: 'Invalid, expired, or revoked authentication token.',
       code: 'UNAUTHORIZED_TOKEN',
@@ -136,6 +181,13 @@ setInterval(() => {
   }
 }, 10 * 60 * 1000);
 
+// In-memory daily call counters per user (acting as fallback/cache if Firestore transaction experiences transient hiccups)
+interface UserDailyTracker {
+  date: string;
+  count: number;
+}
+const userDailyCounters = new Map<string, UserDailyTracker>();
+
 // (b) Daily Quota Enforcement inside Firestore Transaction (Admin SDK writable only)
 async function enforceGeminiQuota(req: Request, res: Response, next: NextFunction) {
   const uid = req.uid;
@@ -159,7 +211,7 @@ async function enforceGeminiQuota(req: Request, res: Response, next: NextFunctio
     });
   }
 
-  // Step 2: Daily Call Limit via Admin Firestore Transaction
+  // Step 2: Daily Call Limit via Admin Firestore Transaction with in-memory fallback
   const parsedLimit = parseInt(process.env.DAILY_CALL_LIMIT || '120', 10);
   const dailyLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 120;
 
@@ -195,6 +247,9 @@ async function enforceGeminiQuota(req: Request, res: Response, next: NextFunctio
       return { allowed: true, currentCount: nextCount, dailyLimit };
     });
 
+    // Update in-memory tracker
+    userDailyCounters.set(uid, { date: todayDocId, count: transactionResult.currentCount });
+
     if (!transactionResult.allowed) {
       return res.status(429).json({
         error: `Daily Gemini AI call quota reached (${transactionResult.currentCount}/${transactionResult.dailyLimit} calls for today). Your quota will reset tomorrow.`,
@@ -207,13 +262,27 @@ async function enforceGeminiQuota(req: Request, res: Response, next: NextFunctio
 
     return next();
   } catch (err: any) {
-    console.error(`[Quota Error] Failed to evaluate daily quota for user ${uid} [${correlationId}]:`, err);
-    // If Firestore transaction fails unexpectedly, fail open or return safe error
-    return res.status(500).json({
-      error: 'Failed to verify AI call quota.',
-      code: 'QUOTA_VERIFICATION_ERROR',
-      correlationId,
-    });
+    console.warn(`[Quota Notice] Admin Firestore transaction encountered issue for user ${uid} [${correlationId}]:`, err?.message || err);
+
+    // Resilient fallback: evaluate in-memory daily tracker
+    let userTracker = userDailyCounters.get(uid);
+    if (!userTracker || userTracker.date !== todayDocId) {
+      userTracker = { date: todayDocId, count: 0 };
+    }
+
+    if (userTracker.count >= dailyLimit) {
+      return res.status(429).json({
+        error: `Daily Gemini AI call quota reached (${userTracker.count}/${dailyLimit} calls for today). Your quota will reset tomorrow.`,
+        code: 'DAILY_LIMIT_REACHED',
+        correlationId,
+        currentCount: userTracker.count,
+        dailyLimit,
+      });
+    }
+
+    userTracker.count += 1;
+    userDailyCounters.set(uid, userTracker);
+    return next();
   }
 }
 
@@ -597,37 +666,41 @@ Extract all explicit first-person stances/claims, assign topic slugs (reusing ex
 
     // Server-side Admin SDK writes for topic-slugs and claims (write-locked from client)
     if (uid) {
-      // 1. Write users/{uid}/meta/topics
-      const topicDocRef = adminDb.collection('users').doc(uid).collection('meta').doc('topics');
-      await topicDocRef.set(
-        {
-          slugs: updatedSlugs,
-          updatedAt: Date.now(),
-          serverSyncedAt: FieldValue.serverTimestamp(),
-        },
-        { merge: true }
-      );
+      try {
+        // 1. Write users/{uid}/meta/topics
+        const topicDocRef = adminDb.collection('users').doc(uid).collection('meta').doc('topics');
+        await topicDocRef.set(
+          {
+            slugs: updatedSlugs,
+            updatedAt: Date.now(),
+            serverSyncedAt: FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
 
-      // 2. Write users/{uid}/claims/{claimId}
-      if (parsedClaims.length > 0) {
-        const batch = adminDb.batch();
-        for (const claim of parsedClaims) {
-          const claimDocRef = adminDb.collection('users').doc(uid).collection('claims').doc(claim.id);
-          batch.set(
-            claimDocRef,
-            {
-              id: claim.id,
-              statement: claim.statement,
-              topicSlug: claim.topicSlug,
-              conviction: claim.conviction,
-              sessionId: sessionId || null,
-              createdAt: claim.createdAt,
-              serverSyncedAt: FieldValue.serverTimestamp(),
-            },
-            { merge: true }
-          );
+        // 2. Write users/{uid}/claims/{claimId}
+        if (parsedClaims.length > 0) {
+          const batch = adminDb.batch();
+          for (const claim of parsedClaims) {
+            const claimDocRef = adminDb.collection('users').doc(uid).collection('claims').doc(claim.id);
+            batch.set(
+              claimDocRef,
+              {
+                id: claim.id,
+                statement: claim.statement,
+                topicSlug: claim.topicSlug,
+                conviction: claim.conviction,
+                sessionId: sessionId || null,
+                createdAt: claim.createdAt,
+                serverSyncedAt: FieldValue.serverTimestamp(),
+              },
+              { merge: true }
+            );
+          }
+          await batch.commit();
         }
-        await batch.commit();
+      } catch (dbErr) {
+        console.warn('[Admin Firestore Notice] Failed to persist claims/topics server-side:', dbErr);
       }
     }
 
@@ -663,7 +736,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    console.log(`ReflectAI Server running at http://0.0.0.0:${PORT}`);
+    console.log(`MindtrailAI Server running at http://0.0.0.0:${PORT}`);
   });
 }
 

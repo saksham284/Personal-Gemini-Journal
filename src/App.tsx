@@ -17,7 +17,7 @@ import { AuthLanding } from './components/AuthLanding';
 import { SidebarHistory } from './components/SidebarHistory';
 import { JournalWorkspace } from './components/JournalWorkspace';
 import { DeleteModal } from './components/DeleteModal';
-import { Sparkles, Menu, X, LogIn, Lock, RefreshCw } from 'lucide-react';
+import { NotebookPen, Menu, X, LogIn, Lock, RefreshCw } from 'lucide-react';
 
 function createNewBlankEntry(userId: string): JournalEntry {
   return {
@@ -408,12 +408,12 @@ export default function App() {
   // Auth Loading Screen
   if (authLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-50">
+      <div className="flex min-h-screen items-center justify-center bg-[#F7F3ED]">
         <div className="flex flex-col items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-neutral-900 text-white shadow-sm animate-bounce">
-            <Sparkles className="h-5 w-5 text-amber-300" />
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#3B2F2A] text-[#FFFDF9] shadow-sm animate-bounce">
+            <NotebookPen className="h-5 w-5 text-[#E8D5C0]" />
           </div>
-          <p className="text-xs font-medium text-neutral-600">Initializing ReflectAI...</p>
+          <p className="text-xs font-serif italic text-[#7A6255]">Initializing MindtrailAI &middot; Second Thought...</p>
         </div>
       </div>
     );
@@ -426,7 +426,7 @@ export default function App() {
 
   // Authenticated: Main Workspace
   return (
-    <div className="flex min-h-screen flex-col bg-neutral-50 text-neutral-900">
+    <div className="flex min-h-screen flex-col bg-[#F7F3ED] text-[#292321]">
       {/* Top Navigation */}
       <Navbar
         user={currentUser}
@@ -437,16 +437,16 @@ export default function App() {
       />
 
       {/* Mobile Toggle Bar */}
-      <div className="flex items-center justify-between border-b border-neutral-200 bg-white px-4 py-2 md:hidden">
+      <div className="flex items-center justify-between border-b border-[#E4DCD3] bg-[#FFFDF9] px-4 py-2 md:hidden">
         <button
           onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-2.5 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-100"
+          className="flex items-center gap-2 rounded-lg border border-[#E4DCD3] bg-[#F7F3ED] px-2.5 py-1.5 text-xs font-medium text-[#7A6255] hover:bg-[#E8D5C0]/40"
         >
           {sidebarOpen ? <X className="h-3.5 w-3.5" /> : <Menu className="h-3.5 w-3.5" />}
           <span>{sidebarOpen ? 'Close History' : 'Reflection History'}</span>
         </button>
 
-        <span className="text-xs font-medium text-neutral-700 truncate max-w-[180px]">
+        <span className="font-serif text-xs font-medium text-[#292321] truncate max-w-[180px]">
           {activeEntry?.title || 'Reflection'}
         </span>
       </div>
@@ -488,28 +488,28 @@ export default function App() {
 
       {/* 401 Re-authentication Modal */}
       {isReauthModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-neutral-900/60 p-4 backdrop-blur-xs">
-          <div className="w-full max-w-md rounded-2xl border border-neutral-200 bg-white p-6 shadow-2xl space-y-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#3B2F2A]/50 p-4 backdrop-blur-xs">
+          <div className="w-full max-w-md rounded-2xl border border-[#E4DCD3] bg-[#FFFDF9] p-6 shadow-2xl space-y-4">
             <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-600">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F7F3ED] text-[#B9825A] border border-[#E4DCD3]">
                 <Lock className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold text-neutral-900">Session Verification Required</h3>
-                <p className="text-xs text-neutral-500">Your session token has expired or is invalid.</p>
+                <h3 className="font-serif text-base font-bold text-[#292321]">Session Verification Required</h3>
+                <p className="text-xs font-serif text-[#7A6255]">Your session token has expired or is invalid.</p>
               </div>
             </div>
 
-            <p className="text-xs text-neutral-600 leading-relaxed">
+            <p className="font-serif text-xs text-[#7A6255] leading-relaxed">
               To protect your private journal entries and securely communicate with Gemini, please re-authenticate.
-              <span className="font-semibold text-neutral-900"> Your draft text and current reflections are safely preserved.</span>
+              <span className="font-semibold text-[#292321]"> Your draft text and current reflections are safely preserved.</span>
             </p>
 
             <div className="flex items-center justify-end gap-2.5 pt-2">
               <button
                 type="button"
                 onClick={() => setIsReauthModalOpen(false)}
-                className="rounded-lg border border-neutral-200 px-3.5 py-2 text-xs font-medium text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900 cursor-pointer"
+                className="rounded-lg border border-[#E4DCD3] bg-[#F7F3ED] px-3.5 py-2 text-xs font-medium text-[#7A6255] hover:bg-[#E8D5C0]/40 cursor-pointer"
               >
                 Dismiss
               </button>
@@ -518,12 +518,12 @@ export default function App() {
                 onClick={handleReauthenticate}
                 disabled={isReauthenticating}
                 id="btn-reauthenticate"
-                className="flex items-center gap-2 rounded-lg bg-neutral-900 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-neutral-800 disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-2 rounded-lg bg-[#3B2F2A] px-4 py-2 text-xs font-semibold text-[#FFFDF9] shadow-xs hover:bg-[#292321] disabled:opacity-50 cursor-pointer"
               >
                 {isReauthenticating ? (
-                  <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#E8D5C0]" />
                 ) : (
-                  <LogIn className="h-3.5 w-3.5" />
+                  <LogIn className="h-3.5 w-3.5 text-[#E8D5C0]" />
                 )}
                 <span>{isReauthenticating ? 'Signing In...' : 'Sign In with Google'}</span>
               </button>

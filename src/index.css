@@ -1,1 +1,37 @@
 @import "tailwindcss";
+
+@theme {
+  --color-ivory-bg: #F7F3ED;
+  --color-ivory-card: #FFFDF9;
+  --color-espresso-primary: #3B2F2A;
+  --color-mocha-secondary: #7A6255;
+  --color-copper-accent: #B9825A;
+  --color-parchment-highlight: #E8D5C0;
+  --color-ink-text: #292321;
+  --color-muted-text: #8C817A;
+  --color-border-ivory: #E4DCD3;
+  --font-serif: "Newsreader", "EB Garamond", Georgia, serif;
+  --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+body {
+  background-color: #F7F3ED;
+  color: #292321;
+  font-family: var(--font-sans);
+}
+
+/* Custom scrollbars for literary journal feel */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #F7F3ED;
+}
+::-webkit-scrollbar-thumb {
+  background: #E4DCD3;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #D8CCC0;
+}
