@@ -1,6 +1,6 @@
 {
   "name": "MindtrailAI - Second Thought",
-  "description": "Second Thought: A record of what you believed — and what changed. Epistemological personal journaling and reflection companion powered by Gemini and Firestore.",
+  "description": "A journal that remembers the positions you took — and shows you when you reverse one.",
   "requestFramePermissions": [],
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"

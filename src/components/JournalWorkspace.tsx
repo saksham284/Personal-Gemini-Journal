@@ -36,6 +36,9 @@ interface JournalWorkspaceProps {
   onSendMessage: (userText: string, mode: ReflectionMode) => Promise<void>;
   errorMessage: string | null;
   onClearError: () => void;
+  userTopicSlugs?: string[];
+  hasSealedSessionsInAccount?: boolean;
+  onStartTopicReflection?: (topicSlug: string) => void;
 }
 
 const REFLECTION_MODES: {
@@ -109,20 +112,21 @@ function getClassificationBadge(classification: 'reverses' | 'abandons' | 'refin
     case 'reverses':
       return {
         label: 'Reverses Prior Stance',
-        bg: 'bg-[#FDF7F5] border-[#EAD8D2] text-[#9C3E2D]',
-        dot: 'bg-[#9C3E2D]',
+        bg: 'bg-rose-50 border-[#E5C6C1] text-[#8A2E20]',
+        dot: 'bg-[#8A2E20]',
       };
     case 'abandons':
       return {
         label: 'Abandons Prior Stance',
-        bg: 'bg-[#FDF9F5] border-[#E8D5C0] text-[#8A5832]',
-        dot: 'bg-[#8A5832]',
+        bg: 'bg-amber-50 border-[#DFC8B2] text-[#78441E]',
+        dot: 'bg-[#78441E]',
       };
     case 'refines':
+    default:
       return {
         label: 'Refines Prior Stance',
-        bg: 'bg-[#FAF6F0] border-[#E4DCD3] text-[#7A6255]',
-        dot: 'bg-[#B9825A]',
+        bg: 'bg-[#F4EFEA] border-[#D5C8BD] text-[#4A3C35]',
+        dot: 'bg-[#4A3C35]',
       };
   }
 }
@@ -138,6 +142,9 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
   onSendMessage,
   errorMessage,
   onClearError,
+  userTopicSlugs = [],
+  hasSealedSessionsInAccount = false,
+  onStartTopicReflection,
 }) => {
   const [inputText, setInputText] = useState('');
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -548,73 +555,120 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
             </div>
           )}
 
+          {/* PRE-SEALING GUIDANCE: Explains what sealing does with inline button */}
+          {entry.messages.length > 0 && !entry.isSealed && (
+            <div className="mt-8 rounded-2xl border border-dashed border-[#D8CEBF] bg-[#FFFDF9]/80 p-5 text-center shadow-2xs">
+              <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-xl bg-[#F7F3ED] text-[#B9825A] border border-[#E4DCD3] mb-2.5">
+                <ShieldCheck className="h-4.5 w-4.5" />
+              </div>
+              <h4 className="font-serif text-sm font-semibold text-[#292321]">
+                Epistemological Stance Extraction
+              </h4>
+              <p className="mt-1 text-xs text-[#7A6255] font-serif max-w-md mx-auto leading-relaxed">
+                Sealing extracts your first-person philosophical stances and commitments with Gemini, recording your worldview evolution over time.
+              </p>
+              <div className="mt-3.5 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => onSealSession(entry)}
+                  disabled={isSealing || isGenerating || isSummarizing || entry.messages.length < 2}
+                  className="flex items-center gap-1.5 rounded-lg bg-[#3B2F2A] px-4 py-2 text-xs font-semibold text-[#FFFDF9] shadow-xs hover:bg-[#292321] disabled:opacity-40 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
+                >
+                  {isSealing ? (
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#E8D5C0] motion-reduce:animate-none" />
+                  ) : (
+                    <Lock className="h-3.5 w-3.5 text-[#E8D5C0]" />
+                  )}
+                  <span>{isSealing ? 'Extracting Stances...' : 'Seal Session & Extract Stances'}</span>
+                </button>
+              </div>
+              {entry.messages.length < 2 && (
+                <p className="mt-2 text-[10px] text-[#8C817A] font-serif italic">
+                  Write your thoughts and reflect at least once (2 turns) to enable stance sealing.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* Sealed Session Ledger & Claims Section */}
-          {entry.isSealed && entry.claims && entry.claims.length > 0 && (
+          {entry.isSealed && (
             <div className="mt-8 space-y-6 pt-4 border-t border-[#E4DCD3]">
-              {/* Epistemological Ledger Banner */}
-              <div className="rounded-2xl border border-[#E4DCD3] bg-[#FFFDF9] p-5 shadow-2xs">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4DCD3]/60 pb-3.5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#3B2F2A] text-[#E8D5C0]">
-                      <ShieldCheck className="h-4 w-4" />
+              {/* Claims Panel */}
+              {entry.claims && entry.claims.length > 0 ? (
+                <div className="rounded-2xl border border-[#E4DCD3] bg-[#FFFDF9] p-5 shadow-2xs">
+                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E4DCD3]/60 pb-3.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#3B2F2A] text-[#E8D5C0]">
+                        <ShieldCheck className="h-4 w-4" />
+                      </div>
+                      <div>
+                        <h3 className="font-serif text-sm font-bold text-[#292321]">
+                          Extracted Stances & Convictions ({entry.claims.length})
+                        </h3>
+                        <p className="text-[11px] text-[#7A6255] font-serif">
+                          First-person commitments and stances recorded upon session seal
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <h3 className="font-serif text-sm font-bold text-[#292321]">
-                        Extracted Stances & Convictions ({entry.claims.length})
-                      </h3>
-                      <p className="text-[11px] text-[#7A6255] font-serif">
-                        First-person commitments and stances recorded upon session seal
-                      </p>
-                    </div>
+
+                    {entry.sealedAt && (
+                      <span className="text-[10px] font-medium text-[#8C817A] font-serif italic">
+                        Sealed on {new Date(entry.sealedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
+                      </span>
+                    )}
                   </div>
 
-                  {entry.sealedAt && (
-                    <span className="text-[10px] font-medium text-[#8C817A] font-serif italic">
-                      Sealed on {new Date(entry.sealedAt).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}
-                    </span>
-                  )}
-                </div>
-
-                {/* Grid of Claims */}
-                <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  {entry.claims.map((claim) => {
-                    const convictionPct = Math.round(claim.conviction * 100);
-                    return (
-                      <div
-                        key={claim.id}
-                        className="flex flex-col justify-between rounded-xl border border-[#E4DCD3] bg-[#F7F3ED]/70 p-3.5 transition-all hover:bg-[#F7F3ED] hover:border-[#B9825A]/60"
-                      >
-                        <div>
-                          <div className="flex items-center justify-between gap-2 mb-2">
-                            <span className="inline-flex items-center rounded-md bg-[#FFFDF9] border border-[#E4DCD3] px-2 py-0.5 text-[10px] font-semibold text-[#7A6255]">
-                              #{claim.topicSlug}
-                            </span>
-                            <span className="text-[10px] font-bold text-[#7A6255]">
-                              {convictionPct}% Conviction
-                            </span>
+                  {/* Grid of Claims */}
+                  <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {entry.claims.map((claim) => {
+                      const convictionPct = Math.round(claim.conviction * 100);
+                      return (
+                        <div
+                          key={claim.id}
+                          className="flex flex-col justify-between rounded-xl border border-[#E4DCD3] bg-[#F7F3ED]/70 p-3.5 transition-all hover:bg-[#F7F3ED] hover:border-[#B9825A]/60"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between gap-2 mb-2">
+                              <span className="inline-flex items-center rounded-md bg-[#FFFDF9] border border-[#E4DCD3] px-2 py-0.5 text-[10px] font-semibold text-[#5C4A42]">
+                                #{claim.topicSlug}
+                              </span>
+                              <span className="text-[10px] font-bold text-[#5C4A42]">
+                                {convictionPct}% Conviction
+                              </span>
+                            </div>
+                            <p className="font-serif text-xs font-medium text-[#292321] leading-relaxed">
+                              &ldquo;{claim.statement}&rdquo;
+                            </p>
                           </div>
-                          <p className="font-serif text-xs font-medium text-[#292321] leading-relaxed">
-                            "{claim.statement}"
-                          </p>
-                        </div>
 
-                        {/* Conviction Bar */}
-                        <div className="mt-3">
-                          <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#E4DCD3]">
-                            <div
-                              className="h-full rounded-full bg-[#B9825A] transition-all"
-                              style={{ width: `${Math.max(8, convictionPct)}%` }}
-                            />
+                          {/* Conviction Bar */}
+                          <div className="mt-3">
+                            <div className="h-1.5 w-full overflow-hidden rounded-full bg-[#D8CEBF]">
+                              <div
+                                className="h-full rounded-full bg-[#8A5832] transition-all"
+                                style={{ width: `${Math.max(8, convictionPct)}%` }}
+                              />
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <div className="rounded-2xl border border-[#E4DCD3] bg-[#FFFDF9] p-5 text-center">
+                  <ShieldCheck className="mx-auto h-7 w-7 text-[#B9825A]/60 mb-2" />
+                  <h4 className="font-serif text-sm font-semibold text-[#292321]">
+                    No Firm Commitments Extracted
+                  </h4>
+                  <p className="mt-1 text-xs text-[#7A6255] font-serif max-w-md mx-auto leading-relaxed">
+                    No clear first-person philosophical stances or commitments were detected in this conversation. Write an entry where you take a firm position on your values, career, or habits, then seal again.
+                  </p>
+                </div>
+              )}
 
               {/* Evolution Gaps (Reverses / Abandons / Refines) */}
-              {entry.claimGaps && entry.claimGaps.length > 0 && (
+              {entry.claimGaps && entry.claimGaps.length > 0 ? (
                 <div className="rounded-2xl border border-[#E8D5C0] bg-[#FFFDF9] p-5 shadow-2xs">
                   <div className="flex items-center gap-2.5 mb-3.5">
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#3B2F2A] text-[#E8D5C0]">
@@ -643,7 +697,7 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
                               <span className={`h-1.5 w-1.5 rounded-full ${badge.dot}`} />
                               {badge.label}
                             </span>
-                            <span className="text-[10px] font-semibold text-[#7A6255]">
+                            <span className="text-[10px] font-semibold text-[#5C4A42]">
                               Topic: #{gap.topicSlug}
                             </span>
                           </div>
@@ -654,14 +708,14 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
                               <span className="text-[10px] font-semibold text-[#8C817A] uppercase tracking-wide block mb-1 font-serif">
                                 Prior Stance
                               </span>
-                              <p className="text-[#7A6255] italic font-serif">"{gap.previousClaim}"</p>
+                              <p className="text-[#5C4A42] italic font-serif">&ldquo;{gap.previousClaim}&rdquo;</p>
                             </div>
 
                             <div className="rounded-lg bg-[#FFFDF9] p-2.5 border border-[#E4DCD3]">
-                              <span className="text-[10px] font-semibold text-[#B9825A] uppercase tracking-wide block mb-1 font-serif">
+                              <span className="text-[10px] font-semibold text-[#8A5832] uppercase tracking-wide block mb-1 font-serif">
                                 New Sealed Stance
                               </span>
-                              <p className="text-[#292321] font-medium font-serif">"{gap.newClaim}"</p>
+                              <p className="text-[#292321] font-medium font-serif">&ldquo;{gap.newClaim}&rdquo;</p>
                             </div>
                           </div>
 
@@ -670,18 +724,19 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
                             <div className="flex items-start gap-2">
                               <HelpCircle className="h-4 w-4 text-[#B9825A] shrink-0 mt-0.5" />
                               <div className="flex-1">
-                                <span className="text-[10px] font-bold text-[#7A6255] uppercase tracking-wide font-serif">
+                                <span className="text-[10px] font-bold text-[#5C4A42] uppercase tracking-wide font-serif">
                                   Reflective Inquiry
                                 </span>
                                 <p className="text-[#292321] text-xs font-serif italic mt-0.5 leading-relaxed">
                                   {gap.question}
                                 </p>
                                 <button
+                                  type="button"
                                   onClick={() => {
                                     setInputText(gap.question);
                                     if (textareaRef.current) textareaRef.current.focus();
                                   }}
-                                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#B9825A] hover:text-[#3B2F2A] hover:underline cursor-pointer"
+                                  className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-[#8A5832] hover:text-[#3B2F2A] hover:underline cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] rounded p-0.5 focus:outline-hidden"
                                 >
                                   <span>Explore this question in reflection</span>
                                   <ArrowRight className="h-3 w-3" />
@@ -694,6 +749,59 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
                     })}
                   </div>
                 </div>
+              ) : !hasSealedSessionsInAccount ? (
+                <div className="rounded-2xl border border-[#E4DCD3] bg-[#FFFDF9] p-5 text-center">
+                  <GitBranch className="mx-auto h-7 w-7 text-[#B9825A]/60 mb-2" />
+                  <h4 className="font-serif text-sm font-semibold text-[#292321]">
+                    Perspective Shifts
+                  </h4>
+                  <p className="mt-1 text-xs text-[#7A6255] font-serif max-w-md mx-auto leading-relaxed">
+                    No perspective shifts yet. Sealing a session records the positions you took. Once you write and seal a second reflection on a shared topic, MindtrailAI will compare them and highlight where your thinking shifted.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-[#E4DCD3] bg-[#FFFDF9] p-5">
+                  <div className="flex items-center gap-2.5 mb-2.5">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#3B2F2A] text-[#E8D5C0]">
+                      <GitBranch className="h-4 w-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-serif text-sm font-bold text-[#292321]">
+                        No Shifts Detected in this Session
+                      </h4>
+                      <p className="text-[11px] text-[#7A6255] font-serif">
+                        Write about one of your existing topics again to see how your thinking evolved:
+                      </p>
+                    </div>
+                  </div>
+
+                  {userTopicSlugs && userTopicSlugs.length > 0 ? (
+                    <div className="mt-3 flex flex-wrap gap-1.5 pt-1">
+                      {userTopicSlugs.map((slug) => (
+                        <button
+                          key={slug}
+                          type="button"
+                          onClick={() => {
+                            if (onStartTopicReflection) {
+                              onStartTopicReflection(slug);
+                            } else {
+                              setInputText(`Reflecting on #${slug}: `);
+                              if (textareaRef.current) textareaRef.current.focus();
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-[#D8CEBF] bg-[#F7F3ED] px-2.5 py-1 text-xs font-medium text-[#3B2F2A] hover:bg-[#E8D5C0]/60 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
+                        >
+                          <span className="text-[#B9825A] font-semibold">#</span>
+                          <span>{slug}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-[#7A6255] font-serif italic mt-2">
+                      Start another reflection on your values, career, or daily habits to generate topic comparisons.
+                    </p>
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -703,7 +811,7 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
       </div>
 
       {/* Input Box Footer */}
-      <div className="border-t border-[#E4DCD3] bg-[#FFFDF9] p-4">
+      <div className="border-t border-[#E4DCD3] bg-[#FFFDF9] p-3 sm:p-4 min-w-0">
         <div className="mx-auto max-w-3xl">
           {/* Quick prompt suggestions when ongoing conversation */}
           {entry.messages.length > 0 && (
@@ -712,11 +820,12 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
               {suggestions.slice(0, 2).map((sug, i) => (
                 <button
                   key={i}
+                  type="button"
                   onClick={() => {
                     setInputText(sug);
                     if (textareaRef.current) textareaRef.current.focus();
                   }}
-                  className="rounded-md border border-[#E4DCD3] bg-[#F7F3ED] px-2 py-0.5 text-[10px] text-[#7A6255] hover:bg-[#E8D5C0]/40 hover:text-[#292321] whitespace-nowrap transition-colors cursor-pointer font-serif"
+                  className="rounded-md border border-[#E4DCD3] bg-[#F7F3ED] px-2 py-0.5 text-[10px] text-[#5C4A42] hover:bg-[#E8D5C0]/40 hover:text-[#292321] whitespace-nowrap transition-colors cursor-pointer font-serif focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
                 >
                   {sug.slice(0, 45)}...
                 </button>
@@ -733,25 +842,37 @@ export const JournalWorkspace: React.FC<JournalWorkspaceProps> = ({
               value={inputText}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}
+              aria-label={`Reflection input for ${activeModeObj.label}`}
               placeholder={`Record your thoughts in ${activeModeObj.label}... (Press Enter to reflect)`}
               disabled={isGenerating || isSealing}
               className="w-full resize-none bg-transparent px-2 py-1 text-xs text-[#292321] placeholder:text-[#8C817A] focus:outline-hidden disabled:opacity-50 font-serif"
             />
 
             <button
+              type="button"
               onClick={handleSend}
               id="btn-send-message"
+              aria-label="Send reflection message to Gemini"
               disabled={!inputText.trim() || isGenerating || isSealing}
               title="Send to Gemini"
-              className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3B2F2A] text-[#FFFDF9] shadow-xs hover:bg-[#292321] disabled:opacity-40 transition-all cursor-pointer"
+              className="ml-2 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[#3B2F2A] text-[#FFFDF9] shadow-xs hover:bg-[#292321] disabled:opacity-40 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
             >
               <Send className="h-3.5 w-3.5 text-[#E8D5C0]" />
             </button>
           </div>
 
-          <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#8C817A] px-1 font-serif">
-            <span>Press <kbd className="font-mono bg-[#E4DCD3]/60 px-1 py-0.5 rounded text-[#292321]">Enter</kbd> to reflect &middot; <kbd className="font-mono bg-[#E4DCD3]/60 px-1 py-0.5 rounded text-[#292321]">Shift + Enter</kbd> for newline</span>
-            <span>Private &middot; Isolated Cloud Firestore</span>
+          <div className="mt-1.5 flex items-center justify-between text-[10px] text-[#8C817A] px-1 font-serif flex-wrap gap-1">
+            <span>
+              Press <kbd className="font-mono bg-[#E4DCD3]/60 px-1 py-0.5 rounded text-[#292321]">Enter</kbd> to reflect &middot; <kbd className="font-mono bg-[#E4DCD3]/60 px-1 py-0.5 rounded text-[#292321]">Shift + Enter</kbd> for newline
+            </span>
+            <div className="flex items-center gap-2">
+              {inputText.length > 1500 && (
+                <span className={`font-mono ${inputText.length > 20000 ? 'text-rose-700 font-semibold' : 'text-[#7A6255]'}`}>
+                  {inputText.length.toLocaleString()} chars
+                </span>
+              )}
+              <span>Private Firestore</span>
+            </div>
           </div>
         </div>
       </div>

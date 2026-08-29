@@ -42,21 +42,24 @@ export const Navbar: React.FC<NavbarProps> = ({
         {/* Sync Status Badge */}
         <div className="hidden sm:flex items-center">
           {syncStatus === 'synced' && (
-            <span className="flex items-center gap-1.5 rounded-md bg-[#F7F3ED] px-2 py-1 text-xs text-[#7A6255] border border-[#E4DCD3]">
+            <span role="status" aria-label="Cloud sync status: Synced" className="flex items-center gap-1.5 rounded-md bg-[#F7F3ED] px-2 py-1 text-xs text-[#5C4A42] border border-[#E4DCD3]">
               <Database className="h-3 w-3 text-[#B9825A]" />
               <span>Cloud Synced</span>
             </span>
           )}
           {syncStatus === 'saving' && (
-            <span className="flex items-center gap-1.5 rounded-md bg-[#F7F3ED] px-2 py-1 text-xs text-[#B9825A] border border-[#E8D5C0] animate-pulse">
+            <span role="status" aria-label="Cloud sync status: Saving in progress" className="flex items-center gap-1.5 rounded-md bg-[#F7F3ED] px-2 py-1 text-xs text-[#8A5832] border border-[#E8D5C0] animate-pulse">
               <span className="h-1.5 w-1.5 rounded-full bg-[#B9825A]" />
               <span>Recording...</span>
             </span>
           )}
           {syncStatus === 'error' && (
             <button
+              type="button"
+              role="alert"
+              aria-label="Cloud sync failed. Click to retry."
               onClick={onRetrySave}
-              className="flex items-center gap-1.5 rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-800 border border-rose-200 hover:bg-rose-100 transition-colors"
+              className="flex items-center gap-1.5 rounded-md bg-rose-50 px-2 py-1 text-xs font-medium text-rose-800 border border-rose-200 hover:bg-rose-100 transition-colors focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
             >
               <span className="h-1.5 w-1.5 rounded-full bg-rose-600" />
               <span>Save failed &middot; Retry</span>
@@ -66,9 +69,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         {/* New Reflection Button */}
         <button
+          type="button"
           onClick={onNewEntry}
           id="btn-new-entry-navbar"
-          className="flex items-center gap-1.5 rounded-lg bg-[#3B2F2A] px-3.5 py-1.5 text-xs font-medium text-[#FFFDF9] shadow-xs hover:bg-[#292321] active:scale-98 transition-all cursor-pointer"
+          aria-label="Create new journal entry"
+          className="flex items-center gap-1.5 rounded-lg bg-[#3B2F2A] px-3.5 py-1.5 text-xs font-medium text-[#FFFDF9] shadow-xs hover:bg-[#292321] active:scale-98 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
         >
           <Plus className="h-3.5 w-3.5 text-[#E8D5C0]" />
           <span>New Entry</span>
@@ -79,8 +84,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           {user.photoURL ? (
             <img
               src={user.photoURL}
-              alt={user.displayName || 'User'}
-              className="h-7 w-7 rounded-full object-cover ring-1 ring-[#E4DCD3]"
+              alt={user.displayName || 'User profile'}
+              className="h-7 w-7 rounded-full object-cover ring-1 border border-[#E4DCD3]"
               referrerPolicy="no-referrer"
             />
           ) : (
@@ -95,10 +100,12 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           <button
+            type="button"
             onClick={onSignOut}
             id="btn-sign-out"
             title="Sign Out"
-            className="rounded-md p-1.5 text-[#8C817A] hover:bg-[#F7F3ED] hover:text-[#292321] transition-colors cursor-pointer"
+            aria-label="Sign out of your account"
+            className="rounded-md p-1.5 text-[#8C817A] hover:bg-[#F7F3ED] hover:text-[#292321] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
           >
             <LogOut className="h-4 w-4" />
           </button>

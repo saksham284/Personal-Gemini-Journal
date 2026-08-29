@@ -117,6 +117,78 @@ export const AuthLanding: React.FC<AuthLandingProps> = ({ onSuccess }) => {
             </div>
           </div>
 
+          {/* Differentiator Showcase: Illustrative Example Shift Card */}
+          <div className="mx-auto mt-10 max-w-xl text-left">
+            <div className="flex items-center justify-between gap-2 px-1 mb-2">
+              <div className="flex items-center gap-1.5 text-[11px] font-bold text-[#8A5832] uppercase tracking-wider font-serif">
+                <GitBranch className="h-3.5 w-3.5 text-[#B9825A]" />
+                <span>How It Works &middot; Perspective Shift Detection</span>
+              </div>
+              <span className="rounded-full bg-[#E8D5C0]/60 border border-[#E4DCD3] px-2 py-0.5 text-[10px] font-semibold text-[#5C4A42]">
+                Static Illustrative Example
+              </span>
+            </div>
+
+            <div className="rounded-2xl border border-[#E8D5C0] bg-[#FFFDF9] p-5 shadow-sm space-y-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap border-b border-[#E4DCD3]/60 pb-3">
+                <div className="flex items-center gap-2">
+                  <span className="inline-flex items-center gap-1.5 rounded-full border border-[#EAD8D2] bg-[#FDF2F0] px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#8A2E20]">
+                    <span className="h-1.5 w-1.5 rounded-full bg-[#8A2E20]" />
+                    Reverses Prior Stance
+                  </span>
+                  <span className="inline-flex items-center rounded-md bg-[#F7F3ED] border border-[#E4DCD3] px-2 py-0.5 text-[11px] font-semibold text-[#5C4A42]">
+                    #management-career
+                  </span>
+                </div>
+                <span className="text-[10px] font-medium text-[#7A6255] font-serif italic">
+                  Extracted via Session Sealing
+                </span>
+              </div>
+
+              {/* Then vs Now Comparison */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div className="rounded-xl bg-[#F7F3ED] p-3 border border-[#E4DCD3]">
+                  <span className="text-[10px] font-semibold text-[#7A6255] uppercase tracking-wide block mb-1 font-serif">
+                    Then &middot; ~6 weeks ago
+                  </span>
+                  <p className="text-[#5C4A42] italic font-serif leading-relaxed">
+                    &ldquo;I never want to manage people &mdash; I do my best work heads-down.&rdquo;
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-[#F7F3ED] p-3 border border-[#E4DCD3]">
+                  <span className="text-[10px] font-semibold text-[#8A5832] uppercase tracking-wide block mb-1 font-serif">
+                    Now &middot; Today
+                  </span>
+                  <p className="text-[#292321] font-medium font-serif leading-relaxed">
+                    &ldquo;I&apos;m energised by 1-on-1 coaching. Management might actually be where I thrive.&rdquo;
+                  </p>
+                </div>
+              </div>
+
+              {/* Inquiry Question */}
+              <div className="rounded-xl bg-[#F7F3ED] border border-[#E8D5C0] p-3.5">
+                <div className="flex items-start gap-2.5">
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-[#FFFDF9] border border-[#E4DCD3] text-[#B9825A] shrink-0 mt-0.5">
+                    <span className="text-xs font-serif font-bold">?</span>
+                  </div>
+                  <div className="flex-1">
+                    <span className="text-[10px] font-bold text-[#7A6255] uppercase tracking-wide font-serif">
+                      Reflective Inquiry Prompt
+                    </span>
+                    <p className="text-[#292321] text-xs font-serif italic mt-0.5 leading-relaxed font-medium">
+                      &ldquo;What changed your mind about working with people?&rdquo;
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-1 text-[11px] text-[#7A6255] font-serif italic text-center">
+                Seal your reflections as you write. When you revisit a topic weeks or months later, MindtrailAI surfaces your evolution.
+              </div>
+            </div>
+          </div>
+
           {/* Three Feature Highlights */}
           <div className="mx-auto mt-16 grid max-w-4xl grid-cols-1 gap-6 sm:grid-cols-3 text-left">
             <div className="rounded-xl border border-[#E4DCD3] bg-[#FFFDF9] p-5 shadow-xs">

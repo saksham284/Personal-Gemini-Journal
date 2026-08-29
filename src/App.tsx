@@ -324,7 +324,12 @@ export default function App() {
 
   // Handle Sealing a Session and Extracting Claims & Evolution Gaps
   const handleSealSession = async (entry: JournalEntry) => {
-    if (entry.messages.length === 0 || !currentUser) return;
+    if (isSealing || isGenerating || isSummarizing) return;
+    if (!currentUser) return;
+    if (entry.messages.length < 2) {
+      setErrorMessage('Please reflect with Gemini for at least two turns before sealing your session.');
+      return;
+    }
 
     setIsSealing(true);
     setErrorMessage(null);
@@ -474,6 +479,32 @@ export default function App() {
             onSendMessage={handleSendMessage}
             errorMessage={errorMessage}
             onClearError={() => setErrorMessage(null)}
+            userTopicSlugs={Array.from(
+              new Set(
+                entries
+                  .filter((e) => e.isSealed && e.claims)
+                  .flatMap((e) => e.claims?.map((c) => c.topicSlug) || [])
+                  .filter(Boolean)
+              )
+            )}
+            hasSealedSessionsInAccount={entries.some((e) => e.isSealed && e.id !== activeEntry.id)}
+            onStartTopicReflection={(topicSlug) => {
+              if (!currentUser) return;
+              const newEntry = createNewBlankEntry(currentUser.uid);
+              newEntry.title = `Reflection on #${topicSlug}`;
+              newEntry.tags = [topicSlug];
+              newEntry.messages = [
+                {
+                  id: `prompt-${Date.now()}`,
+                  role: 'model',
+                  content: `Let's reflect on your stance toward **#${topicSlug}**. What is your current thinking or approach to this today, and how has it evolved recently?`,
+                  timestamp: Date.now(),
+                },
+              ];
+              setEntries((prev) => [newEntry, ...prev]);
+              setActiveEntry(newEntry);
+              saveJournalEntry(newEntry).catch(console.error);
+            }}
           />
         )}
       </div>
@@ -488,19 +519,30 @@ export default function App() {
 
       {/* 401 Re-authentication Modal */}
       {isReauthModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-[#3B2F2A]/50 p-4 backdrop-blur-xs">
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="reauth-modal-title"
+          aria-describedby="reauth-modal-desc"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setIsReauthModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#3B2F2A]/50 p-4 backdrop-blur-xs"
+        >
           <div className="w-full max-w-md rounded-2xl border border-[#E4DCD3] bg-[#FFFDF9] p-6 shadow-2xl space-y-4">
             <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#F7F3ED] text-[#B9825A] border border-[#E4DCD3]">
                 <Lock className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="font-serif text-base font-bold text-[#292321]">Session Verification Required</h3>
+                <h3 id="reauth-modal-title" className="font-serif text-base font-bold text-[#292321]">
+                  Session Verification Required
+                </h3>
                 <p className="text-xs font-serif text-[#7A6255]">Your session token has expired or is invalid.</p>
               </div>
             </div>
 
-            <p className="font-serif text-xs text-[#7A6255] leading-relaxed">
+            <p id="reauth-modal-desc" className="font-serif text-xs text-[#7A6255] leading-relaxed">
               To protect your private journal entries and securely communicate with Gemini, please re-authenticate.
               <span className="font-semibold text-[#292321]"> Your draft text and current reflections are safely preserved.</span>
             </p>
@@ -509,7 +551,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={() => setIsReauthModalOpen(false)}
-                className="rounded-lg border border-[#E4DCD3] bg-[#F7F3ED] px-3.5 py-2 text-xs font-medium text-[#7A6255] hover:bg-[#E8D5C0]/40 cursor-pointer"
+                className="rounded-lg border border-[#E4DCD3] bg-[#F7F3ED] px-3.5 py-2 text-xs font-medium text-[#7A6255] hover:bg-[#E8D5C0]/40 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
               >
                 Dismiss
               </button>
@@ -518,7 +560,7 @@ export default function App() {
                 onClick={handleReauthenticate}
                 disabled={isReauthenticating}
                 id="btn-reauthenticate"
-                className="flex items-center gap-2 rounded-lg bg-[#3B2F2A] px-4 py-2 text-xs font-semibold text-[#FFFDF9] shadow-xs hover:bg-[#292321] disabled:opacity-50 cursor-pointer"
+                className="flex items-center gap-2 rounded-lg bg-[#3B2F2A] px-4 py-2 text-xs font-semibold text-[#FFFDF9] shadow-xs hover:bg-[#292321] disabled:opacity-50 cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
               >
                 {isReauthenticating ? (
                   <RefreshCw className="h-3.5 w-3.5 animate-spin text-[#E8D5C0]" />

@@ -85,6 +85,16 @@ declare global {
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
+// Unauthenticated health / uptime probe endpoint (Accessible without Bearer token)
+app.get('/api/health', (req: Request, res: Response) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: Date.now(),
+    service: 'MindtrailAI-SecondThought',
+    uptime: process.uptime(),
+  });
+});
+
 // 2. Authentication Middleware: Revocation-checked Firebase ID Token Verification
 async function requireUser(req: Request, res: Response, next: NextFunction) {
   const authHeader = req.headers.authorization;
@@ -486,7 +496,12 @@ app.post('/api/gemini/seal-session', async (req: Request, res: Response) => {
     const previousClaims = Array.isArray(body.previousClaims) ? body.previousClaims : [];
 
     if (!conversationText.trim()) {
-      return res.status(400).json({ error: 'Conversation text is required to extract claims.' });
+      return res.json({
+        claims: [],
+        claimGaps: [],
+        updatedSlugs: existingTopicSlugs,
+        modelUsed: 'none',
+      });
     }
 
     const previousClaimsFormatted = previousClaims.length > 0

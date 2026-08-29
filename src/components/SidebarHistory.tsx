@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Tag, MessageSquare, Trash2, Calendar, Sparkles, ChevronLeft, ChevronRight, ShieldCheck, NotebookPen } from 'lucide-react';
+import { Search, Tag, MessageSquare, Trash2, ShieldCheck, NotebookPen, Plus } from 'lucide-react';
 import type { JournalEntry } from '../types';
 
 interface SidebarHistoryProps {
@@ -7,6 +7,7 @@ interface SidebarHistoryProps {
   activeEntryId: string | null;
   onSelectEntry: (entry: JournalEntry) => void;
   onDeleteRequest: (entry: JournalEntry) => void;
+  onNewEntry?: () => void;
   isOpen: boolean;
   onToggle: () => void;
 }
@@ -16,6 +17,7 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
   activeEntryId,
   onSelectEntry,
   onDeleteRequest,
+  onNewEntry,
   isOpen,
   onToggle,
 }) => {
@@ -89,10 +91,12 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
         <div
           className="fixed inset-0 z-20 bg-[#3B2F2A]/30 backdrop-blur-xs md:hidden"
           onClick={onToggle}
+          aria-hidden="true"
         />
       )}
 
       <aside
+        aria-label="Reflection History Sidebar"
         className={`fixed inset-y-0 left-0 z-20 flex w-80 flex-col border-r border-[#E4DCD3] bg-[#FFFDF9] transition-transform duration-200 ease-in-out md:static md:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         }`}
@@ -105,15 +109,17 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
             <input
               type="text"
               id="input-search-history"
+              aria-label="Search reflections and tags"
               placeholder="Search reflections & tags..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-lg border border-[#E4DCD3] bg-[#F7F3ED] py-1.5 pl-8 pr-3 text-xs text-[#292321] placeholder:text-[#8C817A] focus:border-[#3B2F2A] focus:bg-[#FFFDF9] focus:outline-hidden"
+              className="w-full rounded-lg border border-[#E4DCD3] bg-[#F7F3ED] py-1.5 pl-8 pr-7 text-xs text-[#292321] placeholder:text-[#8C817A] focus:border-[#3B2F2A] focus:bg-[#FFFDF9] focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
             />
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-2 text-xs text-[#8C817A] hover:text-[#292321]"
+                aria-label="Clear search input"
+                className="absolute right-2.5 top-2 text-xs text-[#8C817A] hover:text-[#292321] focus-visible:ring-2 focus-visible:ring-[#3B2F2A] rounded p-0.5"
               >
                 &times;
               </button>
@@ -125,10 +131,10 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
             <div className="flex flex-wrap gap-1 pt-1 max-h-16 overflow-y-auto">
               <button
                 onClick={() => setSelectedTag(null)}
-                className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                className={`rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden cursor-pointer ${
                   selectedTag === null
                     ? 'bg-[#3B2F2A] text-[#FFFDF9]'
-                    : 'bg-[#F7F3ED] text-[#7A6255] border border-[#E4DCD3] hover:bg-[#E8D5C0]/40'
+                    : 'bg-[#F7F3ED] text-[#5C4A42] border border-[#E4DCD3] hover:bg-[#E8D5C0]/40'
                 }`}
               >
                 All
@@ -137,13 +143,13 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                 <button
                   key={tag}
                   onClick={() => setSelectedTag(selectedTag === tag ? null : tag)}
-                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors ${
+                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 text-[10px] font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden cursor-pointer ${
                     selectedTag === tag
                       ? 'bg-[#3B2F2A] text-[#FFFDF9]'
-                      : 'bg-[#F7F3ED] text-[#7A6255] border border-[#E4DCD3] hover:bg-[#E8D5C0]/40'
+                      : 'bg-[#F7F3ED] text-[#5C4A42] border border-[#E4DCD3] hover:bg-[#E8D5C0]/40'
                   }`}
                 >
-                  <Tag className="h-2.5 w-2.5" />
+                  <Tag className="h-2.5 w-2.5 text-[#B9825A]" />
                   <span>#{tag}</span>
                 </button>
               ))}
@@ -153,15 +159,43 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
 
         {/* History Entries List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
-          {groupedEntries.length === 0 ? (
-            <div className="py-12 text-center text-xs text-[#8C817A] px-4 font-serif">
-              <NotebookPen className="mx-auto h-7 w-7 text-[#B9825A]/60 mb-2" />
-              <p className="font-semibold text-[#292321]">No reflections found</p>
-              <p className="mt-1 text-[11px] text-[#7A6255]">
-                {entries.length === 0
-                  ? 'Your saved reflections and stance evolution will appear here.'
-                  : 'No entries match your search query.'}
+          {entries.length === 0 ? (
+            /* Empty state teaching next action */
+            <div className="py-10 text-center text-xs text-[#8C817A] px-4 font-serif">
+              <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-[#F7F3ED] border border-[#E4DCD3] text-[#B9825A] mb-3">
+                <NotebookPen className="h-5 w-5" />
+              </div>
+              <h3 className="font-semibold text-sm text-[#292321]">Start your first reflection</h3>
+              <p className="mt-1 text-[11px] text-[#7A6255] leading-relaxed">
+                Capture a raw thought, question, or dilemma. As you reflect and seal entries, your epistemological stance records will appear here.
               </p>
+              {onNewEntry && (
+                <button
+                  onClick={onNewEntry}
+                  id="btn-sidebar-first-reflection"
+                  className="mt-4 inline-flex items-center gap-1.5 rounded-lg bg-[#3B2F2A] px-3.5 py-2 text-xs font-semibold text-[#FFFDF9] shadow-xs hover:bg-[#292321] focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden cursor-pointer"
+                >
+                  <Plus className="h-3.5 w-3.5 text-[#E8D5C0]" />
+                  <span>Start First Reflection</span>
+                </button>
+              )}
+            </div>
+          ) : groupedEntries.length === 0 ? (
+            /* Search filter with zero results */
+            <div className="py-10 text-center text-xs text-[#8C817A] px-4 font-serif">
+              <p className="font-semibold text-[#292321]">No matching reflections</p>
+              <p className="mt-1 text-[11px] text-[#7A6255]">
+                No entries match your search query &ldquo;{searchQuery}&rdquo;.
+              </p>
+              <button
+                onClick={() => {
+                  setSearchQuery('');
+                  setSelectedTag(null);
+                }}
+                className="mt-3 text-xs font-medium text-[#B9825A] hover:underline"
+              >
+                Clear search filters
+              </button>
             </div>
           ) : (
             groupedEntries.map((group) => (
@@ -178,7 +212,17 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                       <div
                         key={entry.id}
                         onClick={() => onSelectEntry(entry)}
-                        className={`group relative flex cursor-pointer flex-col rounded-xl p-2.5 text-left transition-all ${
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onSelectEntry(entry);
+                          }
+                        }}
+                        tabIndex={0}
+                        role="button"
+                        aria-pressed={isActive}
+                        aria-label={`Reflection: ${entry.title || 'Untitled'}, ${turnCount} thoughts`}
+                        className={`group relative flex cursor-pointer flex-col rounded-xl p-2.5 text-left transition-all focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden ${
                           isActive
                             ? 'bg-[#3B2F2A] text-[#FFFDF9] shadow-xs'
                             : 'hover:bg-[#F7F3ED] text-[#292321]'
@@ -212,7 +256,7 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                         )}
 
                         <div className="mt-2 flex items-center justify-between">
-                          <div className="flex items-center gap-1.5">
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             <span
                               className={`flex items-center gap-0.5 text-[10px] font-medium ${
                                 isActive ? 'text-[#E8D5C0]' : 'text-[#7A6255]'
@@ -240,10 +284,10 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                                 className={`inline-flex items-center gap-0.5 rounded px-1.5 py-0.2 text-[9px] font-medium ${
                                   isActive
                                     ? 'bg-[#B9825A]/30 text-[#E8D5C0] border border-[#B9825A]/40'
-                                    : 'bg-[#F7F3ED] text-[#B9825A] border border-[#E4DCD3]'
+                                    : 'bg-[#F7F3ED] text-[#8A5832] border border-[#E4DCD3]'
                                 }`}
                               >
-                                <ShieldCheck className="h-2.5 w-2.5" />
+                                <ShieldCheck className="h-2.5 w-2.5 text-[#B9825A]" />
                                 <span>Sealed</span>
                               </span>
                             )}
@@ -256,8 +300,9 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
                               e.stopPropagation();
                               onDeleteRequest(entry);
                             }}
+                            aria-label={`Delete reflection: ${entry.title || 'Untitled'}`}
                             title="Delete entry"
-                            className={`opacity-0 group-hover:opacity-100 rounded p-1 transition-opacity cursor-pointer ${
+                            className={`opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 rounded p-1 transition-opacity cursor-pointer focus-visible:ring-2 focus-visible:ring-rose-600 focus:outline-hidden ${
                               isActive
                                 ? 'text-[#E8D5C0] hover:bg-[#292321] hover:text-rose-300'
                                 : 'text-[#8C817A] hover:bg-[#E8D5C0]/40 hover:text-rose-600'
@@ -276,10 +321,11 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
         </div>
 
         {/* Sidebar Footer Info */}
-        <div className="border-t border-[#E4DCD3] p-2.5 text-center text-[11px] text-[#8C817A] font-serif">
+        <div className="border-t border-[#E4DCD3] p-2.5 text-center text-[11px] text-[#7A6255] font-serif">
           <span>{entries.length} Total Recorded Reflections</span>
         </div>
       </aside>
     </>
   );
 };
+
