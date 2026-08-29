@@ -14,6 +14,13 @@ export interface ChatMessage {
 
 export type GapClassification = 'reverses' | 'abandons' | 'refines' | 'reinforces';
 
+export type PredictionOutcome =
+  | 'pending'
+  | 'happened'
+  | 'did_not_happen'
+  | 'still_open'
+  | 'no_longer_relevant';
+
 export interface ExtractedClaim {
   id: string;
   statement: string;
@@ -21,6 +28,27 @@ export interface ExtractedClaim {
   conviction: number; // 0 to 1
   sessionId?: string;
   createdAt: number;
+  isPredictive?: boolean;
+  reviewInDays?: number;
+  reviewAt?: number;
+  outcome?: PredictionOutcome;
+  resolvedAt?: number;
+  lastPostponedAt?: number;
+}
+
+export interface CalibrationBandStats {
+  total: number;
+  happened: number;
+  rate: number; // 0 to 1
+}
+
+export interface CalibrationRecord {
+  totalResolved: number;
+  totalHappened: number;
+  overallRate: number;
+  highBand: CalibrationBandStats; // 0.7 - 1.0
+  mediumBand: CalibrationBandStats; // 0.4 - 0.7
+  lowBand: CalibrationBandStats; // 0.0 - 0.4
 }
 
 export interface ClaimGap {

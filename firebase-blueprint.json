@@ -1,0 +1,73 @@
+{
+  "entities": {
+    "Interaction": {
+      "title": "Interaction",
+      "description": "User journal reflection session, chat history, synthesis, and extracted claims",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "summary": { "type": "string" },
+        "mode": { "type": "string" },
+        "messages": { "type": "array" },
+        "tags": { "type": "array" },
+        "isSealed": { "type": "boolean" },
+        "sealedAt": { "type": "number" },
+        "claims": { "type": "array" },
+        "claimGaps": { "type": "array" },
+        "createdAt": { "type": "number" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["id", "userId", "title", "createdAt", "updatedAt"]
+    },
+    "Claim": {
+      "title": "Claim",
+      "description": "Extracted first-person stance or testable predictive claim",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "statement": { "type": "string" },
+        "topicSlug": { "type": "string" },
+        "conviction": { "type": "number" },
+        "sessionId": { "type": "string" },
+        "createdAt": { "type": "number" },
+        "isPredictive": { "type": "boolean" },
+        "reviewInDays": { "type": "number" },
+        "reviewAt": { "type": "number" },
+        "outcome": { "type": "string" },
+        "resolvedAt": { "type": "number" },
+        "lastPostponedAt": { "type": "number" }
+      },
+      "required": ["id", "statement", "topicSlug", "conviction", "createdAt"]
+    },
+    "TopicMeta": {
+      "title": "TopicMeta",
+      "description": "User topic slugs for consistent topic reuse",
+      "type": "object",
+      "properties": {
+        "slugs": { "type": "array" },
+        "updatedAt": { "type": "number" }
+      },
+      "required": ["slugs"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/interactions/{interactionId}": {
+      "schema": "Interaction",
+      "description": "Journal reflection entries owned by userId"
+    },
+    "/users/{userId}/claims/{claimId}": {
+      "schema": "Claim",
+      "description": "Extracted epistemological and predictive claims owned by userId"
+    },
+    "/users/{userId}/meta/{metaId}": {
+      "schema": "TopicMeta",
+      "description": "User topic slugs and metadata owned by userId"
+    },
+    "/users/{userId}/quota/{docId}": {
+      "schema": "object",
+      "description": "Per-day rate-limiting and quota tracking"
+    }
+  }
+}

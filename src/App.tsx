@@ -9,14 +9,19 @@ import {
   removeJournalEntry,
   getUserTopicSlugs,
   getAllUserClaims,
+  saveUserClaims,
+  saveUserTopicSlugs,
+  getUserPredictions,
+  resolveUserPrediction,
   logOut,
 } from './lib/firebase';
-import type { JournalEntry, ChatMessage, ReflectionMode } from './types';
+import type { JournalEntry, ChatMessage, ReflectionMode, ExtractedClaim, CalibrationRecord, PredictionOutcome } from './types';
 import { Navbar } from './components/Navbar';
 import { AuthLanding } from './components/AuthLanding';
 import { SidebarHistory } from './components/SidebarHistory';
 import { JournalWorkspace } from './components/JournalWorkspace';
 import { DeleteModal } from './components/DeleteModal';
+import { ReckoningPanel } from './components/ReckoningPanel';
 import { NotebookPen, Menu, X, LogIn, Lock, RefreshCw } from 'lucide-react';
 
 function createNewBlankEntry(userId: string): JournalEntry {
@@ -59,6 +64,15 @@ export default function App() {
 
   // Fallback cache for retry
   const pendingSaveRef = useRef<JournalEntry | null>(null);
+
+  // The Reckoning: predictions & calibration state
+  const [dueClaims, setDueClaims] = useState<ExtractedClaim[]>([]);
+  const [upcomingClaims, setUpcomingClaims] = useState<ExtractedClaim[]>([]);
+  const [resolvedClaims, setResolvedClaims] = useState<ExtractedClaim[]>([]);
+  const [calibration, setCalibration] = useState<CalibrationRecord | null>(null);
+  const [soonestUpcomingReviewAt, setSoonestUpcomingReviewAt] = useState<number | null>(null);
+  const [isResolvingId, setIsResolvingId] = useState<string | null>(null);
+  const [isReckoningModalOpen, setIsReckoningModalOpen] = useState<boolean>(false);
 
   // 1. Subscribe to Firebase Auth
   useEffect(() => {
@@ -383,11 +397,100 @@ export default function App() {
       };
 
       await handleUpdateEntry(sealedEntry);
+
+      // Persist claims and updated topic slugs in client-authenticated Firestore
+      if (returnedClaims.length > 0) {
+        await saveUserClaims(currentUser.uid, returnedClaims);
+      }
+      if (Array.isArray(data.updatedSlugs) && data.updatedSlugs.length > 0) {
+        await saveUserTopicSlugs(currentUser.uid, data.updatedSlugs);
+      }
+
+      // Refresh Reckoning predictions queue
+      await fetchReckoningData();
     } catch (err: any) {
       console.error('Seal session error:', err);
       setErrorMessage(err.message || 'Failed to extract stances and seal session.');
     } finally {
       setIsSealing(false);
+    }
+  };
+
+  // Fetch Reckoning Predictions & Calibration Data
+  const fetchReckoningData = useCallback(async () => {
+    if (!currentUser) return;
+    try {
+      // First fetch directly from Firestore client SDK (guaranteed authenticated & real-time)
+      const directData = await getUserPredictions(currentUser.uid);
+      setDueClaims(directData.dueClaims);
+      setUpcomingClaims(directData.upcomingClaims);
+      setResolvedClaims(directData.resolvedClaims);
+      setCalibration(directData.calibration);
+      setSoonestUpcomingReviewAt(directData.soonestUpcomingReviewAt);
+
+      // Optionally sync with backend endpoint if available
+      try {
+        const response = await authFetch('/api/reckoning/predictions');
+        if (response.ok) {
+          const serverData = await response.json();
+          if (Array.isArray(serverData.dueClaims) && serverData.dueClaims.length > 0) {
+            setDueClaims(serverData.dueClaims);
+            setUpcomingClaims(Array.isArray(serverData.upcomingClaims) ? serverData.upcomingClaims : []);
+            setResolvedClaims(Array.isArray(serverData.resolvedClaims) ? serverData.resolvedClaims : []);
+            if (serverData.calibration) setCalibration(serverData.calibration);
+            if (typeof serverData.soonestUpcomingReviewAt === 'number') {
+              setSoonestUpcomingReviewAt(serverData.soonestUpcomingReviewAt);
+            }
+          }
+        }
+      } catch {
+        // Fallback to client data which is already set
+      }
+    } catch (err: any) {
+      console.warn('Reckoning data fetch error:', err);
+    }
+  }, [currentUser, authFetch]);
+
+  // Load Reckoning predictions whenever user logs in
+  useEffect(() => {
+    if (currentUser) {
+      fetchReckoningData();
+    } else {
+      setDueClaims([]);
+      setUpcomingClaims([]);
+      setResolvedClaims([]);
+      setCalibration(null);
+      setSoonestUpcomingReviewAt(null);
+    }
+  }, [currentUser, fetchReckoningData]);
+
+  // Handle Resolving a Prediction (happened | did_not_happen | still_open | no_longer_relevant)
+  const handleResolveClaim = async (claimId: string, outcome: PredictionOutcome) => {
+    if (!currentUser || isResolvingId) return;
+    setIsResolvingId(claimId);
+    setErrorMessage(null);
+
+    try {
+      // 1. Resolve directly in client Firestore
+      await resolveUserPrediction(currentUser.uid, claimId, outcome);
+
+      // 2. Also notify backend endpoint in background
+      try {
+        await authFetch('/api/reckoning/resolve', {
+          method: 'POST',
+          body: JSON.stringify({ claimId, outcome }),
+        });
+      } catch {
+        // Ignored as client resolution has already committed to Firestore
+      }
+
+      // 3. Refresh Reckoning predictions and calibration
+      await fetchReckoningData();
+    } catch (err: any) {
+      console.error('Prediction resolution error:', err);
+      setErrorMessage(err.message || 'Failed to resolve prediction outcome.');
+    } finally {
+      setIsResolvingId(null);
     }
   };
 
@@ -439,6 +542,8 @@ export default function App() {
         onNewEntry={handleNewEntry}
         syncStatus={syncStatus}
         onRetrySave={handleRetrySave}
+        dueReckoningCount={dueClaims.length}
+        onOpenReckoning={() => setIsReckoningModalOpen(true)}
       />
 
       {/* Mobile Toggle Bar */}
@@ -465,6 +570,17 @@ export default function App() {
           onDeleteRequest={(entry) => setEntryToDelete(entry)}
           isOpen={sidebarOpen}
           onToggle={() => setSidebarOpen(!sidebarOpen)}
+          dueClaims={dueClaims}
+          upcomingClaims={upcomingClaims}
+          resolvedClaims={resolvedClaims}
+          calibration={calibration}
+          soonestUpcomingReviewAt={soonestUpcomingReviewAt}
+          onResolveClaim={handleResolveClaim}
+          isResolvingId={isResolvingId}
+          onOpenReckoning={() => {
+            setSidebarOpen(false);
+            setIsReckoningModalOpen(true);
+          }}
         />
 
         {activeEntry && (
@@ -516,6 +632,31 @@ export default function App() {
         onCancel={() => setEntryToDelete(null)}
         isDeleting={isDeleting}
       />
+
+      {/* The Reckoning & Calibration Modal */}
+      {isReckoningModalOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="The Reckoning & Calibration Record"
+          onKeyDown={(e) => {
+            if (e.key === 'Escape') setIsReckoningModalOpen(false);
+          }}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-[#3B2F2A]/50 p-4 backdrop-blur-xs"
+        >
+          <ReckoningPanel
+            dueClaims={dueClaims}
+            upcomingClaims={upcomingClaims}
+            resolvedClaims={resolvedClaims}
+            calibration={calibration}
+            soonestUpcomingReviewAt={soonestUpcomingReviewAt}
+            onResolveClaim={handleResolveClaim}
+            isResolvingId={isResolvingId}
+            onClose={() => setIsReckoningModalOpen(false)}
+            isOpenAsModal={true}
+          />
+        </div>
+      )}
 
       {/* 401 Re-authentication Modal */}
       {isReauthModalOpen && (

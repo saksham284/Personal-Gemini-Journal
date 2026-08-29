@@ -1,6 +1,22 @@
 import React, { useState, useMemo } from 'react';
-import { Search, Tag, MessageSquare, Trash2, ShieldCheck, NotebookPen, Plus } from 'lucide-react';
-import type { JournalEntry } from '../types';
+import {
+  Search,
+  Tag,
+  MessageSquare,
+  Trash2,
+  ShieldCheck,
+  NotebookPen,
+  Plus,
+  Sparkles,
+  ChevronDown,
+  ChevronRight,
+  Calendar,
+  CheckCircle2,
+  XCircle,
+  Clock,
+  Ban,
+} from 'lucide-react';
+import type { JournalEntry, ExtractedClaim, CalibrationRecord, PredictionOutcome } from '../types';
 
 interface SidebarHistoryProps {
   entries: JournalEntry[];
@@ -10,6 +26,14 @@ interface SidebarHistoryProps {
   onNewEntry?: () => void;
   isOpen: boolean;
   onToggle: () => void;
+  dueClaims?: ExtractedClaim[];
+  upcomingClaims?: ExtractedClaim[];
+  resolvedClaims?: ExtractedClaim[];
+  calibration?: CalibrationRecord | null;
+  soonestUpcomingReviewAt?: number | null;
+  onResolveClaim?: (claimId: string, outcome: PredictionOutcome) => Promise<void>;
+  isResolvingId?: string | null;
+  onOpenReckoning?: () => void;
 }
 
 export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
@@ -20,9 +44,26 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
   onNewEntry,
   isOpen,
   onToggle,
+  dueClaims = [],
+  upcomingClaims = [],
+  resolvedClaims = [],
+  calibration = null,
+  soonestUpcomingReviewAt = null,
+  onResolveClaim,
+  isResolvingId = null,
+  onOpenReckoning,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTag, setSelectedTag] = useState<string | null>(null);
+  const [isReckoningExpanded, setIsReckoningExpanded] = useState<boolean>(true);
+
+  const formatDaysAgo = (timestamp: number) => {
+    const diffMs = Date.now() - timestamp;
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    if (diffDays <= 0) return 'Today';
+    if (diffDays === 1) return '1d ago';
+    return `${diffDays}d ago`;
+  };
 
   // Extract all unique tags
   const allTags = useMemo(() => {
@@ -156,6 +197,119 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
             </div>
           )}
         </div>
+
+        {/* Reckoning Due Queue Section (Appears in Sidebar when due items exist) */}
+        {dueClaims.length > 0 && (
+          <div className="border-b border-[#DFC8B2] bg-[#F4EFEA] p-3 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                onClick={() => setIsReckoningExpanded(!isReckoningExpanded)}
+                className="flex items-center gap-1.5 text-left font-serif text-xs font-bold text-[#8A2E20] hover:text-[#5C1F15] transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
+              >
+                <Sparkles className="h-3.5 w-3.5 text-[#8A2E20]" />
+                <span>The Reckoning</span>
+                <span className="inline-flex items-center rounded-full bg-[#8A2E20] px-1.5 py-0.2 text-[9px] font-bold text-[#FFFDF9]">
+                  {dueClaims.length} due
+                </span>
+              </button>
+
+              {onOpenReckoning && (
+                <button
+                  type="button"
+                  onClick={onOpenReckoning}
+                  title="Open full Reckoning & Calibration record"
+                  className="text-[10px] font-medium text-[#7A6255] hover:text-[#292321] hover:underline cursor-pointer"
+                >
+                  View all
+                </button>
+              )}
+            </div>
+
+            {isReckoningExpanded && (
+              <div className="space-y-2.5 max-h-72 overflow-y-auto pr-0.5">
+                {dueClaims.map((claim) => {
+                  const convictionPct = Math.round(claim.conviction * 100);
+                  const isResolving = isResolvingId === claim.id;
+
+                  return (
+                    <div
+                      key={claim.id}
+                      className="rounded-xl border border-[#D5C8BD] bg-[#FFFDF9] p-3 shadow-2xs space-y-2"
+                    >
+                      <div className="flex items-center justify-between gap-1.5 text-[10px]">
+                        <span className="font-semibold text-[#5C4A42]">#{claim.topicSlug}</span>
+                        <span className="text-[#8C817A]">{formatDaysAgo(claim.createdAt)}</span>
+                      </div>
+
+                      <p className="font-serif text-xs font-medium text-[#292321] leading-relaxed">
+                        &ldquo;{claim.statement}&rdquo;
+                      </p>
+
+                      {/* Conviction Bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-[9px] text-[#7A6255]">
+                          <span>Conviction</span>
+                          <span className="font-bold">{convictionPct}%</span>
+                        </div>
+                        <div className="h-1 w-full overflow-hidden rounded-full bg-[#E4DCD3]">
+                          <div
+                            className="h-full rounded-full bg-[#8A5832]"
+                            style={{ width: `${Math.max(8, convictionPct)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* 4 Outcome Resolution Buttons */}
+                      <div className="pt-1 grid grid-cols-2 gap-1 text-[10px]">
+                        <button
+                          type="button"
+                          disabled={isResolving}
+                          onClick={() => onResolveClaim && onResolveClaim(claim.id, 'happened')}
+                          className="flex items-center justify-center gap-1 rounded-md border border-emerald-300 bg-emerald-50 px-1.5 py-1 font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                          <CheckCircle2 className="h-2.5 w-2.5 text-emerald-600" />
+                          <span>Happened</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isResolving}
+                          onClick={() => onResolveClaim && onResolveClaim(claim.id, 'did_not_happen')}
+                          className="flex items-center justify-center gap-1 rounded-md border border-rose-300 bg-rose-50 px-1.5 py-1 font-semibold text-rose-800 hover:bg-rose-100 disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                          <XCircle className="h-2.5 w-2.5 text-rose-600" />
+                          <span>Did not</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isResolving}
+                          onClick={() => onResolveClaim && onResolveClaim(claim.id, 'still_open')}
+                          title="Postpone check by 30 days"
+                          className="flex items-center justify-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-1.5 py-1 font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                          <Clock className="h-2.5 w-2.5 text-amber-600" />
+                          <span>Still open (+30d)</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={isResolving}
+                          onClick={() => onResolveClaim && onResolveClaim(claim.id, 'no_longer_relevant')}
+                          className="flex items-center justify-center gap-1 rounded-md border border-[#E4DCD3] bg-[#F7F3ED] px-1.5 py-1 font-semibold text-[#7A6255] hover:bg-[#E8D5C0]/40 disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                          <Ban className="h-2.5 w-2.5 text-[#8C817A]" />
+                          <span>Not relevant</span>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* History Entries List */}
         <div className="flex-1 overflow-y-auto p-2 space-y-4">
@@ -320,9 +474,38 @@ export const SidebarHistory: React.FC<SidebarHistoryProps> = ({
           )}
         </div>
 
-        {/* Sidebar Footer Info */}
-        <div className="border-t border-[#E4DCD3] p-2.5 text-center text-[11px] text-[#7A6255] font-serif">
-          <span>{entries.length} Total Recorded Reflections</span>
+        {/* Sidebar Footer Info & Calibration Record Button */}
+        <div className="border-t border-[#E4DCD3] p-2.5 bg-[#FFFDF9] space-y-2">
+          {onOpenReckoning && (
+            <button
+              type="button"
+              onClick={onOpenReckoning}
+              className="flex w-full items-center justify-between rounded-lg border border-[#E4DCD3] bg-[#F7F3ED] px-3 py-2 text-left text-xs font-serif text-[#292321] hover:border-[#B9825A] hover:bg-[#E8D5C0]/40 transition-all cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles className="h-3.5 w-3.5 text-[#B9825A]" />
+                <span className="font-semibold">The Reckoning</span>
+              </div>
+
+              {dueClaims.length > 0 ? (
+                <span className="rounded-full bg-[#8A2E20] px-2 py-0.5 text-[10px] font-bold text-[#FFFDF9]">
+                  {dueClaims.length} due
+                </span>
+              ) : calibration && calibration.totalResolved >= 3 ? (
+                <span className="text-[10px] font-semibold text-[#5C4A42]">
+                  {Math.round(calibration.overallRate * 100)}% accuracy ({calibration.totalHappened}/{calibration.totalResolved})
+                </span>
+              ) : (
+                <span className="text-[10px] text-[#8C817A]">
+                  Calibration ({calibration?.totalResolved || 0}/3)
+                </span>
+              )}
+            </button>
+          )}
+
+          <div className="text-center text-[10px] text-[#8C817A] font-serif">
+            <span>{entries.length} Total Recorded Reflections</span>
+          </div>
         </div>
       </aside>
     </>

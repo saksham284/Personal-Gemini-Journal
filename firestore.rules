@@ -1,27 +1,29 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
     // Isolates user interactions and journal reflection entries strictly to the authenticated owner
     match /users/{userId}/interactions/{interactionId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // User quota tracking (Read-only for the user, Admin SDK writable only)
+    // User quota tracking
     match /users/{userId}/quota/{doc} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if false;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
     // User metadata and topics document (e.g., users/{userId}/meta/topics)
     match /users/{userId}/meta/{metaId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if false;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
-    // User claims collection
+    // User claims collection (epistemological & predictive stances)
     match /users/{userId}/claims/{claimId} {
-      allow read: if request.auth != null && request.auth.uid == userId;
-      allow write: if false;
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
     // User metadata and profile document

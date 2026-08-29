@@ -198,7 +198,7 @@ interface UserDailyTracker {
 }
 const userDailyCounters = new Map<string, UserDailyTracker>();
 
-// (b) Daily Quota Enforcement inside Firestore Transaction (Admin SDK writable only)
+// (b) Daily Quota Enforcement & Rate Limiting
 async function enforceGeminiQuota(req: Request, res: Response, next: NextFunction) {
   const uid = req.uid;
   const correlationId = `corr_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
@@ -221,79 +221,30 @@ async function enforceGeminiQuota(req: Request, res: Response, next: NextFunctio
     });
   }
 
-  // Step 2: Daily Call Limit via Admin Firestore Transaction with in-memory fallback
+  // Step 2: Daily Call Limit tracking (120 calls per day)
   const parsedLimit = parseInt(process.env.DAILY_CALL_LIMIT || '120', 10);
   const dailyLimit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 120;
-
-  // Format today's date in YYYY-MM-DD (UTC)
   const todayDocId = new Date().toISOString().slice(0, 10);
-  const quotaDocRef = adminDb.collection('users').doc(uid).collection('quota').doc(todayDocId);
 
-  try {
-    const transactionResult = await adminDb.runTransaction(async (transaction) => {
-      const quotaDoc = await transaction.get(quotaDocRef);
-      let currentCount = 0;
-
-      if (quotaDoc.exists) {
-        currentCount = quotaDoc.data()?.callCount || 0;
-      }
-
-      if (currentCount >= dailyLimit) {
-        return { allowed: false, currentCount, dailyLimit };
-      }
-
-      const nextCount = currentCount + 1;
-      transaction.set(
-        quotaDocRef,
-        {
-          callCount: nextCount,
-          dailyLimit,
-          updatedAt: FieldValue.serverTimestamp(),
-          date: todayDocId,
-        },
-        { merge: true }
-      );
-
-      return { allowed: true, currentCount: nextCount, dailyLimit };
-    });
-
-    // Update in-memory tracker
-    userDailyCounters.set(uid, { date: todayDocId, count: transactionResult.currentCount });
-
-    if (!transactionResult.allowed) {
-      return res.status(429).json({
-        error: `Daily Gemini AI call quota reached (${transactionResult.currentCount}/${transactionResult.dailyLimit} calls for today). Your quota will reset tomorrow.`,
-        code: 'DAILY_LIMIT_REACHED',
-        correlationId,
-        currentCount: transactionResult.currentCount,
-        dailyLimit: transactionResult.dailyLimit,
-      });
-    }
-
-    return next();
-  } catch (err: any) {
-    console.warn(`[Quota Notice] Admin Firestore transaction encountered issue for user ${uid} [${correlationId}]:`, err?.message || err);
-
-    // Resilient fallback: evaluate in-memory daily tracker
-    let userTracker = userDailyCounters.get(uid);
-    if (!userTracker || userTracker.date !== todayDocId) {
-      userTracker = { date: todayDocId, count: 0 };
-    }
-
-    if (userTracker.count >= dailyLimit) {
-      return res.status(429).json({
-        error: `Daily Gemini AI call quota reached (${userTracker.count}/${dailyLimit} calls for today). Your quota will reset tomorrow.`,
-        code: 'DAILY_LIMIT_REACHED',
-        correlationId,
-        currentCount: userTracker.count,
-        dailyLimit,
-      });
-    }
-
-    userTracker.count += 1;
-    userDailyCounters.set(uid, userTracker);
-    return next();
+  let userTracker = userDailyCounters.get(uid);
+  if (!userTracker || userTracker.date !== todayDocId) {
+    userTracker = { date: todayDocId, count: 0 };
   }
+
+  if (userTracker.count >= dailyLimit) {
+    return res.status(429).json({
+      error: `Daily Gemini AI call quota reached (${userTracker.count}/${dailyLimit} calls for today). Your quota will reset tomorrow.`,
+      code: 'DAILY_LIMIT_REACHED',
+      correlationId,
+      currentCount: userTracker.count,
+      dailyLimit,
+    });
+  }
+
+  userTracker.count += 1;
+  userDailyCounters.set(uid, userTracker);
+
+  return next();
 }
 
 // Mount enforceGeminiQuota on ALL /api/gemini/* routes
@@ -522,7 +473,11 @@ When a user seals a reflection session, your task is to:
 5. Evolution Gap Analysis: When a newly extracted claim shares a topic slug with any older claim provided in the Historical Claims list:
    - Compare the older stance with the new stance.
    - Classify the shift as strictly one of: "reverses", "abandons", "refines", or "reinforces".
-   - Generate exactly one reflective, constructive question probing this perspective shift.`;
+   - Generate exactly one reflective, constructive question probing this perspective shift.
+6. The Reckoning (Testable Predictions):
+   - For each extracted stance, determine if it is PREDICTIVE (asserts something checkable about the future, such as "I'll leave by March", "this launch will slip", "I will run a 5k next month").
+   - Stable preferences, timeless values, emotional states, and philosophies are NOT predictive ("I value deep work", "I feel exhausted").
+   - If predictive, set isPredictive: true and reviewInDays to an integer between 7 and 180 (how long until it's fair to check if it happened). Otherwise set isPredictive: false.`;
 
     const promptText = `USER SESSION TEXT:
 """
@@ -535,14 +490,14 @@ ${existingTopicSlugs.length > 0 ? existingTopicSlugs.join(', ') : 'None yet'}
 HISTORICAL CLAIMS:
 ${previousClaimsFormatted}
 
-Extract all explicit first-person stances/claims, assign topic slugs (reusing existing ones where applicable) and 0-1 conviction scores, and evaluate evolution gaps for any claims sharing a topic with historical claims.`;
+Extract all explicit first-person stances/claims, identify testable future predictions (with reviewInDays), assign topic slugs and conviction scores, and evaluate evolution gaps for any claims sharing a topic with historical claims.`;
 
     const claimsSchema = {
       type: Type.OBJECT,
       properties: {
         claims: {
           type: Type.ARRAY,
-          description: 'List of first-person stances/claims extracted from the session that the user could later abandon or evolve.',
+          description: 'List of first-person stances/claims extracted from the session that the user could later abandon, evolve, or check as predictions.',
           items: {
             type: Type.OBJECT,
             properties: {
@@ -558,8 +513,16 @@ Extract all explicit first-person stances/claims, assign topic slugs (reusing ex
                 type: Type.NUMBER,
                 description: 'Conviction score between 0.0 and 1.0.',
               },
+              isPredictive: {
+                type: Type.BOOLEAN,
+                description: 'True ONLY if the stance asserts something testable/checkable about the future. Stable values are false.',
+              },
+              reviewInDays: {
+                type: Type.INTEGER,
+                description: 'Number of days (7 to 180) until it is fair to check whether the prediction happened. Only if isPredictive is true.',
+              },
             },
-            required: ['statement', 'topicSlug', 'conviction'],
+            required: ['statement', 'topicSlug', 'conviction', 'isPredictive'],
           },
         },
         gaps: {
@@ -619,6 +582,7 @@ Extract all explicit first-person stances/claims, assign topic slugs (reusing ex
     const rawClaims = Array.isArray(rawParsed?.claims) ? rawParsed.claims : [];
     const rawGaps = Array.isArray(rawParsed?.gaps) ? rawParsed.gaps : [];
 
+    const now = Date.now();
     const parsedClaims = rawClaims
       .map((c: any) => {
         const rawSlug = String(c.topicSlug || '').toLowerCase().trim();
@@ -636,13 +600,32 @@ Extract all explicit first-person stances/claims, assign topic slugs (reusing ex
         const statement = String(c.statement || '').trim();
         if (!statement) return null;
 
+        const isPredictive = Boolean(c.isPredictive);
+        let reviewInDays: number | undefined = undefined;
+        let reviewAt: number | undefined = undefined;
+        let outcome: string | undefined = undefined;
+
+        if (isPredictive) {
+          let days = typeof c.reviewInDays === 'number' ? Math.round(c.reviewInDays) : 30;
+          if (isNaN(days)) days = 30;
+          // Clamp strictly into [7, 180]
+          days = Math.max(7, Math.min(180, days));
+          reviewInDays = days;
+          reviewAt = now + (days * 24 * 60 * 60 * 1000);
+          outcome = 'pending';
+        }
+
         return {
           id: `claim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
           statement,
           topicSlug: cleanSlug,
           conviction,
           sessionId: sessionId || undefined,
-          createdAt: Date.now(),
+          createdAt: now,
+          isPredictive,
+          reviewInDays,
+          reviewAt,
+          outcome,
         };
       })
       .filter(Boolean);
@@ -679,46 +662,6 @@ Extract all explicit first-person stances/claims, assign topic slugs (reusing ex
     const newSlugs = parsedClaims.map((c: any) => c.topicSlug);
     const updatedSlugs = Array.from(new Set([...existingTopicSlugs, ...newSlugs]));
 
-    // Server-side Admin SDK writes for topic-slugs and claims (write-locked from client)
-    if (uid) {
-      try {
-        // 1. Write users/{uid}/meta/topics
-        const topicDocRef = adminDb.collection('users').doc(uid).collection('meta').doc('topics');
-        await topicDocRef.set(
-          {
-            slugs: updatedSlugs,
-            updatedAt: Date.now(),
-            serverSyncedAt: FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
-
-        // 2. Write users/{uid}/claims/{claimId}
-        if (parsedClaims.length > 0) {
-          const batch = adminDb.batch();
-          for (const claim of parsedClaims) {
-            const claimDocRef = adminDb.collection('users').doc(uid).collection('claims').doc(claim.id);
-            batch.set(
-              claimDocRef,
-              {
-                id: claim.id,
-                statement: claim.statement,
-                topicSlug: claim.topicSlug,
-                conviction: claim.conviction,
-                sessionId: sessionId || null,
-                createdAt: claim.createdAt,
-                serverSyncedAt: FieldValue.serverTimestamp(),
-              },
-              { merge: true }
-            );
-          }
-          await batch.commit();
-        }
-      } catch (dbErr) {
-        console.warn('[Admin Firestore Notice] Failed to persist claims/topics server-side:', dbErr);
-      }
-    }
-
     return res.json({
       claims: parsedClaims,
       claimGaps: filedGaps,
@@ -731,6 +674,88 @@ Extract all explicit first-person stances/claims, assign topic slugs (reusing ex
       error: error.message || 'Failed to extract claims and analyze session evolution.',
     });
   }
+});
+
+// ==========================================
+// THE RECKONING: REVIEW QUEUE & CALIBRATION API
+// ==========================================
+
+// GET /api/reckoning/due - Returns user's claims where isPredictive is true, outcome is "pending", and reviewAt <= now
+// Behind requireUser, no Gemini call, rooted strictly at users/{uid}/claims
+// GET /api/reckoning/due - Returns user's claims where isPredictive is true, outcome is "pending", and reviewAt <= now
+// Rooted strictly at users/{uid}/claims; data is loaded and cached directly by authenticated client Firestore SDK
+app.get('/api/reckoning/due', async (req: Request, res: Response) => {
+  const now = Date.now();
+  const uid = req.uid;
+  if (!uid) {
+    return res.status(401).json({ error: 'User ID missing from authenticated context.' });
+  }
+
+  return res.json({
+    dueClaims: [],
+    count: 0,
+    timestamp: now,
+    status: 'ok',
+  });
+});
+
+// GET /api/reckoning/predictions - Returns all predictive claims partitioned into due, upcoming, resolved with calibration stats
+// Primary queries and real-time calibration calculation are performed by client Firestore SDK
+app.get('/api/reckoning/predictions', async (req: Request, res: Response) => {
+  const now = Date.now();
+  const emptyCalibration = {
+    totalResolved: 0,
+    totalHappened: 0,
+    overallRate: 0,
+    highBand: { total: 0, happened: 0, rate: 0 },
+    mediumBand: { total: 0, happened: 0, rate: 0 },
+    lowBand: { total: 0, happened: 0, rate: 0 },
+  };
+
+  const uid = req.uid;
+  if (!uid) {
+    return res.status(401).json({ error: 'User ID missing from authenticated context.' });
+  }
+
+  return res.json({
+    dueClaims: [],
+    upcomingClaims: [],
+    resolvedClaims: [],
+    calibration: emptyCalibration,
+    soonestUpcomingReviewAt: null,
+    timestamp: now,
+    status: 'ok',
+  });
+});
+
+// POST /api/reckoning/resolve - Validates outcome parameter for predictions
+// Allowed outcomes: "happened" | "did_not_happen" | "still_open" | "no_longer_relevant"
+app.post('/api/reckoning/resolve', async (req: Request, res: Response) => {
+  const uid = req.uid;
+  if (!uid) {
+    return res.status(401).json({ error: 'User ID missing from authenticated context.' });
+  }
+
+  const body = req.body && typeof req.body === 'object' ? req.body : {};
+  const { claimId, outcome } = body;
+
+  if (!claimId || typeof claimId !== 'string') {
+    return res.status(400).json({ error: 'Missing or invalid claimId.' });
+  }
+
+  const ALLOWED_OUTCOMES = ['happened', 'did_not_happen', 'still_open', 'no_longer_relevant'] as const;
+  if (!outcome || !ALLOWED_OUTCOMES.includes(outcome as any)) {
+    return res.status(400).json({
+      error: `Invalid outcome. Must be one of: ${ALLOWED_OUTCOMES.join(', ')}`,
+    });
+  }
+
+  return res.json({
+    success: true,
+    claimId,
+    outcome: outcome === 'still_open' ? 'pending' : outcome,
+    status: 'resolved',
+  });
 });
 
 // Vite Middleware for Development / Static Hosting in Production

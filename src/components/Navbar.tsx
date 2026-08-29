@@ -1,5 +1,5 @@
 import React from 'react';
-import { NotebookPen, Plus, LogOut, ShieldCheck, Database, BookOpen } from 'lucide-react';
+import { NotebookPen, Plus, LogOut, ShieldCheck, Database, Sparkles } from 'lucide-react';
 import type { User } from 'firebase/auth';
 
 interface NavbarProps {
@@ -8,6 +8,8 @@ interface NavbarProps {
   onNewEntry: () => void;
   syncStatus: 'synced' | 'saving' | 'error';
   onRetrySave?: () => void;
+  dueReckoningCount?: number;
+  onOpenReckoning?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -16,6 +18,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onNewEntry,
   syncStatus,
   onRetrySave,
+  dueReckoningCount = 0,
+  onOpenReckoning,
 }) => {
   return (
     <header className="sticky top-0 z-30 flex items-center justify-between border-b border-[#E4DCD3] bg-[#FFFDF9]/95 px-4 py-2.5 backdrop-blur-md">
@@ -66,6 +70,21 @@ export const Navbar: React.FC<NavbarProps> = ({
             </button>
           )}
         </div>
+
+        {/* The Reckoning Due Badge in Navbar */}
+        {dueReckoningCount > 0 && onOpenReckoning && (
+          <button
+            type="button"
+            onClick={onOpenReckoning}
+            className="flex items-center gap-1.5 rounded-lg border border-[#DFC8B2] bg-[#F4EFEA] px-2.5 py-1 text-xs font-serif font-bold text-[#8A2E20] hover:bg-[#E8D5C0]/60 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-[#3B2F2A] focus:outline-hidden"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-[#8A2E20]" />
+            <span>The Reckoning</span>
+            <span className="rounded-full bg-[#8A2E20] px-1.5 py-0.2 text-[9px] font-bold text-[#FFFDF9]">
+              {dueReckoningCount}
+            </span>
+          </button>
+        )}
 
         {/* New Reflection Button */}
         <button

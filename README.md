@@ -1,12 +1,12 @@
 # MindtrailAI — Personal Reflection & Epistemological Stance Tracker
 
-> An intelligent journaling companion that tracks the philosophical, personal, and career positions you commit to across reflection sessions, automatically detecting and probing when a later entry refines, abandons, or reverses an earlier stance.
+> MindtrailAI notices when you reverse a position you previously committed to in your reflections, and comes back weeks or months later to ask whether the predictions you made about your own life actually came true.
 
 **Live Demo**: [https://mindtrailai-journal-reflection-companion.ai.studio/](https://mindtrailai-journal-reflection-companion.ai.studio/)
 
 ---
 
-## Beyond the Base Spec: Stance Extraction & Perspective Shift Detection
+## Beyond the Base Spec: Stance Extraction, Perspective Shift Detection & The Reckoning
 
 Standard journaling apps treat reflections as isolated, ephemeral entries. MindtrailAI introduces an epistemological memory layer that turns conversational journaling into a longitudinal map of personal evolution:
 
@@ -21,6 +21,17 @@ Standard journaling apps treat reflections as isolated, ephemeral entries. Mindt
    - `abandons`: Letting go of an earlier rule or commitment.
    - `refines`: Nuancing, scoping, or deepening an earlier belief.
    For every detected shift, Gemini generates a tailored, non-judgmental Socratic inquiry question that challenges the user to reflect on what experiences or insights sparked that evolution.
+
+### The Reckoning: Longitudinal Life Prediction Calibration
+
+- **Why It Exists**: People make confident predictions about their own lives constantly—about job offers, relationship outcomes, habits, and project timelines—and almost never check them because nothing ever comes back to ask. The personal journal is the only artifact that can.
+- **How It Works**: During the session sealing extraction pass, Gemini flags stances that are checkable, time-bound claims about the future (`isPredictive: true`) and estimates an appropriate review window (between 7 and 180 days, strictly clamped server-side). When a claim's review date arrives (`reviewAt <= now`), it surfaces in "The Reckoning" queue where the user resolves it in a single tap as:
+  - `happened`: The predicted event or outcome occurred as anticipated.
+  - `did_not_happen`: The outcome did not materialize.
+  - `still_open`: Outcome remains unresolved; pushes the review date forward 30 days while keeping status pending.
+  - `no_longer_relevant`: Circumstances changed or the test became obsolete.
+- **The Calibration Record**: The Reckoning compiles resolved outcomes across conviction bands (High: `0.7–1.0`, Medium: `0.4–0.7`, Low: `0.0–0.4`), allowing users to empirically see whether their subjective certainty tracks real-world outcomes over time.
+- **The Other Half of Drift Detection**: While drift detection asks *"did you change your mind?"*, The Reckoning asks *"were you right?"*. Both capabilities leverage the exact same underlying claims schema, topic vocabulary, and single-click session sealing flow.
 
 ---
 
@@ -59,11 +70,18 @@ MindtrailAI implements defense-in-depth across the API and persistence boundarie
    - If an HTTP `401` is received, an in-place Re-authentication modal is presented without navigating away, resetting input fields, or clearing the active reflection buffer.
    - If an HTTP `429` is received, an alert banner displays the exact limit message while leaving the user's draft text completely intact.
 
+5. **Outcome-Write Boundary & Calibration Integrity (`POST /api/reckoning/resolve`)**:
+   - The prediction resolution endpoint accepts strictly two parameters: `claimId` (string) and `outcome` (a fixed four-value enum: `'happened' | 'did_not_happen' | 'still_open' | 'no_longer_relevant'`).
+   - The client can **never** send a stance statement, a conviction score, or a user ID.
+   - All mutations are addressed by `claimId` and verified against the token-derived `req.uid`, while claims collection documents maintain strict owner boundaries (`users/{userId}/claims/{claimId}`).
+   - **Why This Matters**: A client that could supply or modify the stance or conviction while grading its outcome could rewrite history under the guise of resolving it. Strict parameterization and enum validation guarantee the immutability of historical predictions.
+
 ### Threat Summary Table (5 Threat Zones)
 
 | Threat Zone | Identified Attack Vector | Countermeasure & Mitigation |
 | :--- | :--- | :--- |
 | **1. Input Surfaces** | Prompt injection via untrusted reflection text; oversized payloads; JSON structure corruption. | Strict payload deserialization limits (`express.json({ limit: '2mb' })`), character truncation safeguards, structured JSON schemas (`responseSchema`), and strict isolation of user input as passive data inside prompts. |
+| **1. Input Surfaces & Validation** | Forged or free-form outcome payloads rewriting stored claim content during resolution. | Allowlisted enum validation on outcome, claimId-only addressing, token-derived `req.uid` scoping, and immutability of historical stance text and conviction scores. |
 | **2. Planning & Reasoning** | System instruction bypass; persona hijacking; unexpected output format deviations. | Server-side system instruction boundaries; structured response typing via `@google/genai` `Type.OBJECT`; defensive parsing and numeric clamping on all returned fields. |
 | **3. Tool & API Execution** | Upstream API outages (`503`), quota limits (`429`), model deprecation (`404`), or transient infrastructure failures. | Resilient 4-tier model fallback ladder: `gemini-3.6-flash` → `gemini-3.1-flash-lite` → `gemini-flash-latest` → `gemini-3.7-flash` catching recoverable HTTP errors before surfacing issues to the user. |
 | **4. Memory & State** | Cross-user data leakage; quota tampering; browser cache loss during session expiration. | Client-side Firestore rules enforcing `request.auth.uid == userId`; `quota` subcollection write-locked to Admin SDK transactions; client-side non-destructive error handling preserving draft text across 401/429 states. |
@@ -209,6 +227,30 @@ gcloud run services describe mindtrail-ai \
 - **TC-3.4: Markdown Export & Entry Deletion**
   - **Action**: Click "Export Markdown" or delete an entry via the trash icon.
   - **Expected Outcome**: Downloads clean `.md` transcript with timestamps and stance records; deletion prompts modal confirmation and removes the document from Firestore.
+
+### Test Suite 4: The Reckoning & Life Prediction Calibration
+- **TC-4.1: Predictive Claim Extraction**
+  - **Action**: Conduct and seal a journal session containing time-bound future claims (e.g., *"I will ship the new redesign within the next 45 days"*).
+  - **Expected Outcome**: The extracted claim has `isPredictive: true`, `reviewAt` set to a future timestamp, and `outcome: "pending"`.
+- **TC-4.2: Early Prediction Review ("Check Now")**
+  - **Action**: Open The Reckoning dashboard and click "Check Now" on an upcoming prediction before its target review date.
+  - **Expected Outcome**: Surfaces the pending prediction card immediately into the active resolution queue without having to wait for the review window to elapse.
+- **TC-4.3: Resolution & Calibration Record Update**
+  - **Action**: Tap **"Happened"** or **"Did Not Happen"** on a due prediction.
+  - **Expected Outcome**: The prediction transitions to resolved status, moves to the "Resolved" history tab, and dynamically updates the aggregate calibration percentage and band-specific counters (High / Medium / Low).
+- **TC-4.4: "Still Open" Review Postponement**
+  - **Action**: Tap **"Still Open (+30d)"** on an unresolved prediction.
+  - **Expected Outcome**: Pushes `reviewAt` forward by 30 days while keeping `outcome: "pending"`, and moves it back into the upcoming schedule queue.
+- **TC-4.5: Invalid Outcome Rejection (`curl`)**
+  - **Action**: Send a POST request to `/api/reckoning/resolve` with an unapproved outcome string (e.g., `{ "claimId": "test_123", "outcome": "maybe" }`).
+  - **Expected Outcome**: HTTP `400 Bad Request` with `{ "error": "Invalid outcome. Must be one of: happened, did_not_happen, still_open, no_longer_relevant" }`.
+- **TC-4.6: Cross-Tenant Claims Tamper Prevention**
+  - **Action**: Attempt a direct client console write to another user's claim:
+    ```javascript
+    import { doc, setDoc } from "firebase/firestore";
+    await setDoc(doc(db, "users", "OTHER_USER_UID", "claims", "claim_123"), { statement: "altered" });
+    ```
+  - **Expected Outcome**: Rejected with `FirebaseError: Missing or insufficient permissions` per owner-bound security rules.
 
 ---
 
