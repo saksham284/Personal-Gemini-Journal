@@ -37,7 +37,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             </span>
           </div>
           <p className="text-[11px] text-[#8C817A] hidden md:block italic font-serif">
-            Second Thought &mdash; A record of what you believed &mdash; and what changed
+            A record of what you believed &mdash; and what changed
           </p>
         </div>
       </div>
